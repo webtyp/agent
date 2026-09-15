@@ -10,7 +10,7 @@
     - **Composition:** Main structs must hold these interfaces.
     - **Injection:** `agent.go` constructor is the ONLY place where "Real" implementations are injected.
 
-- **Isomorphic Package Policy:** This library runs on both backend and WASM. Always prefer `tinywasm/` packages over stdlib: `github.com/tinywasm/fmt` (replaces `fmt`, `errors`, `strings`, `strconv`), `github.com/tinywasm/context` (replaces `context`), `github.com/tinywasm/time` (replaces `time`). Use stdlib directly only for packages without a `tinywasm/` equivalent (`net/http`, `sync`, `encoding/json`). Allowed external packages: `modernc.org/sqlite`. (`github.com/asg017/sqlite-vec` is **v2 scope** — see section 4 and [MEMORY.md, section 7](MEMORY.md)).
+- **Isomorphic Package Policy:** This library runs on both backend and WASM. Always prefer `tinywasm/` packages over stdlib: `github.com/tinywasm/fmt` (replaces `fmt`, `errors`, `strings`, `strconv`), `github.com/tinywasm/context` (replaces `context`), `github.com/tinywasm/time` (replaces `time`). Use stdlib directly only for packages without a `tinywasm/` equivalent (`net/http`, `sync`, `encoding/json`). Allowed external packages: `modernc.org/sqlite`. (`github.com/asg017/sqlite-vec` is **v2 scope** — see section 4 and [MEMORY.md, section 7](history/MEMORY_SQLITE.md)).
 
   > **Note on `tinywasm/json`:** Not yet implemented. `encoding/json` is used directly in backend-only files (`memory.go`, `mcp_client.go`, `mcp_registry.go`) until `tinywasm/json` is created.
   >
@@ -57,7 +57,7 @@ agent/
 - `modernc.org/sqlite` (pure Go SQLite driver)
 - `github.com/google/uuid` (ID generation)
 
-> **v2 (future):** `github.com/asg017/sqlite-vec` — vector search extension. Not required in v1; FTS5 (built into SQLite) covers semantic search. See [MEMORY.md, section 7](MEMORY.md).
+> **v2 (future):** `github.com/asg017/sqlite-vec` — vector search extension. Not required in v1; FTS5 (built into SQLite) covers semantic search. See [MEMORY.md, section 7](history/MEMORY_SQLITE.md).
 
 **Test-Only Dependencies:**
 - `github.com/tinywasm/mcpserve` (v0.0.20+) — for real MCP protocol testing

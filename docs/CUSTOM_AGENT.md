@@ -45,7 +45,7 @@ State is not monolithic; it is segmented for security and context window managem
 ### 4.2 Data Model Principles
 *   **Relational Backbone:** Use meaningful schemas (Sessions, Threads, Messages) rather than blob storage.
 *   **Auditability:** Separate `tool_calls` from `messages` to enable granular analysis (latency, failure rates, usage patterns).
-*   **See also:** `ARCHITECTURE.md` and `MEMORY.md` for the concrete database schema.
+*   **See also:** `ARCHITECTURE.md` and `history/MEMORY_SQLITE.md` for the concrete database schema.
 
 ## 5. Orchestration Logic
 

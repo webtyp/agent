@@ -8,7 +8,7 @@ The objective is to build a manually orchestrated agent system, avoiding the com
 
 *   **Deterministic Control:** Use of Finite State Machines (FSM) to govern execution flow.
 *   **Dependency Injection:** All external components (LLM, Database, Tools) are defined via interfaces.
-*   **Memory Isolation:** Session data is isolated by `session_id` (single-tenant, multi-session). Global knowledge (`session_id IS NULL` in the `knowledge` table) is readable by all sessions — see [MEMORY.md, section 2.3](MEMORY.md).
+*   **Memory Isolation:** Session data is isolated by `session_id` (single-tenant, multi-session). Global knowledge (`session_id IS NULL` in the `knowledge` table) is readable by all sessions — see [MEMORY.md, section 2.3](history/MEMORY_SQLITE.md).
 *   **Observability:** Complete traceability of each reasoning step and tool execution.
 
 ## 2. Core System Components
@@ -24,7 +24,9 @@ The heart of the system is the `AgentNode`, which acts as the main orchestrator.
 
 ### 2.2. Memory Layer
 
-Following the unified architecture defined in `docs/MEMORY.md`, the memory system is designed to be isomorphic (Backend/WASM) using **SQLite** as the core engine.
+Following the unified architecture defined in `docs/history/MEMORY_SQLITE.md`, the memory system is designed to be isomorphic (Backend/WASM) using **SQLite** as the core engine.
+
+> **Superseded for the WASM target.** SQLite remains the backend engine and describes the code as it stands today, but it does not compile under TinyGo for `GOOS=js GOARCH=wasm`. The browser path is IndexedDB through `storage.Conn`; the rewrite is Phase 4 of [docs/PLAN.md](PLAN.md).
 
 *   **Structure:** Relational tables + FTS5 (lexical search, v1) + `sqlite-vec` vector search with RRF fusion (v2). Isomorphic: same schema runs on Backend (Go) and Frontend (WASM).
 *   **Components:**

@@ -79,7 +79,7 @@ type Knowledge struct {
 
 > **Session scoping:** `SessionID == ""` (NULL in SQL) means the knowledge is global and
 > returned by `SearchKnowledge` for any session. Non-empty `SessionID` means it is private
-> to that session. See [MEMORY.md, section 2.3](MEMORY.md) for the WHERE clause used at retrieval time.
+> to that session. See [MEMORY.md, section 2.3](history/MEMORY_SQLITE.md) for the WHERE clause used at retrieval time.
 
 ---
 
