@@ -1,43 +1,44 @@
 ---
-PLAN: "feat: webtyp/tokenizer — text to token ids"
+PLAN: "feat: webtyp/tokenizer — de texto a ids de tokens"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-REPO: webtyp/tokenizer (to be created)
+REPO: webtyp/tokenizer (por crear)
 ---
 
-> New repository. Moves to `tokenizer/docs/PLAN.md` once the repository exists.
-> Master index: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> Repositorio nuevo. Se mueve a `tokenizer/docs/PLAN.md` cuando el repositorio exista.
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
 
 # Plan — `webtyp/tokenizer`
 
-## Single responsibility
+## Responsabilidad única
 
-Text in, token ids out. Nothing else. No embeddings, no model weights, no GPU, no
-storage. Pure Go, zero dependencies, compiles everywhere, fully testable without a
-browser.
+Entra texto, salen ids de tokens. Nada más. Sin embeddings, sin pesos de modelo, sin GPU,
+sin almacenamiento. Go puro, cero dependencias, compila en todas partes, enteramente
+testeable sin navegador.
 
-It is separate from `embed` because both phases of the embedder need it identically — a
-static embedding table and a transformer encoder tokenise exactly the same way — and
-because tokenisation is where subtle, hard-to-find bugs live. It deserves its own test
-suite and its own version.
+Está separado de `embed` porque ambas fases del embedder lo necesitan de forma idéntica —
+una tabla de embeddings estática y un encoder transformer tokenizan exactamente igual — y
+porque la tokenización es donde viven los bugs sutiles y difíciles de encontrar. Merece su
+propia suite de tests y su propio versionado.
 
-## Why it must be exact
+## Por qué tiene que ser exacto
 
-A tokeniser that disagrees with the one used to train the model produces embeddings that
-are *plausible but wrong*: no crash, no error, just quietly degraded retrieval that looks
-like a bad model. Every test in §Tests exists to pin behaviour against the reference
-implementation, not to check that the code runs.
+Un tokenizador que discrepa del usado para entrenar el modelo produce embeddings
+*plausibles pero incorrectos*: sin crash, sin error, apenas una recuperación degradada en
+silencio que parece un modelo malo. Cada test de la sección §Tests existe para fijar
+comportamiento contra la implementación de referencia, no para comprobar que el código
+corre.
 
-## Scope
+## Alcance
 
-**v1: WordPiece** (BERT family, which covers the multilingual sentence-transformer
-candidates in `plans/embed.md`).
+**v1: WordPiece** (familia BERT, que cubre los candidatos multilingües de
+sentence-transformer de `plans/embed.md`).
 
-**v2: Unigram/SentencePiece**, if the chosen model needs it. Decide only after
-`plans/embed.md` §2 is resolved — implementing both up front is speculative.
+**v2: Unigram/SentencePiece**, si el modelo elegido lo necesita. Decidir recién cuando se
+resuelva `plans/embed.md` §2 — implementar los dos por adelantado es especulativo.
 
-BPE is out of scope: no candidate model uses it.
+BPE queda fuera de alcance: ningún modelo candidato lo usa.
 
 ## API
 
@@ -68,55 +69,56 @@ type Config struct {
 func NewWordPiece(cfg Config) (Tokenizer, error)
 ```
 
-`Encode` takes a destination slice rather than returning a fresh one because embedding a
-batch of 1024 documents would otherwise allocate 1024 slices.
+`Encode` recibe un slice destino en vez de devolver uno nuevo porque embeber un lote de
+1024 documentos asignaría, si no, 1024 slices.
 
-## Implementation notes
+## Notas de implementación
 
-The pipeline is: normalise → pre-tokenise on whitespace and punctuation → greedy
-longest-match-first WordPiece per word → add special tokens → truncate.
+El pipeline es: normalizar → pre-tokenizar por espacios y puntuación → WordPiece voraz de
+coincidencia más larga por palabra → agregar tokens especiales → truncar.
 
-Three details that are usually got wrong:
+Tres detalles que suelen salir mal:
 
-1. **Accent stripping is not lowercasing.** A multilingual model for Spanish will
-   typically have `strip_accents = false`, because *ánimo* and *animo* are different
-   words. Getting this backwards silently degrades exactly the language this project
-   cares about (master index **D5**). The flag is explicit and separate for that reason,
-   and its default must come from the model artifact, never from a constant here.
+1. **Quitar acentos no es pasar a minúsculas.** Un modelo multilingüe para español
+   típicamente tendrá `strip_accents = false`, porque *ánimo* y *animo* son palabras
+   distintas. Invertir esto degrada en silencio exactamente el idioma que a este proyecto
+   le importa (índice maestro **D5**). El flag es explícito y separado por esa razón, y su
+   valor por defecto tiene que venir del artifact del modelo, nunca de una constante acá.
 
-2. **Unicode without `golang.org/x/text`.** NFD normalisation and category-based
-   punctuation splitting need care under TinyGo, where `unicode` tables inflate the
-   binary. Measure the WASM binary impact before committing to a table-driven approach;
-   a reduced table covering Latin, punctuation and CJK ranges may be the right trade.
-   Record the measurement in the README.
+2. **Unicode sin `golang.org/x/text`.** La normalización NFD y el corte de puntuación por
+   categoría requieren cuidado bajo TinyGo, donde las tablas de `unicode` inflan el
+   binario. Medí el impacto en el binario WASM antes de comprometerte con un enfoque basado
+   en tablas; una tabla reducida cubriendo latín, puntuación y rangos CJK puede ser el
+   compromiso correcto. Registrá la medición en el README.
 
-3. **Greedy longest-match is over *bytes* after normalisation**, and a word that cannot
-   be segmented becomes a single `[UNK]` — not a sequence of `[UNK]` per character.
+3. **La coincidencia voraz más larga es sobre *bytes* después de normalizar**, y una
+   palabra que no se puede segmentar se convierte en un único `[UNK]` — no en una secuencia
+   de `[UNK]` por carácter.
 
 ## Tests
 
-Fixtures are the deliverable here. Generate them once with the reference Python
-tokeniser, commit them as `testdata/*.json`, and pin against them forever.
+Los fixtures son el entregable acá. Generalos una vez con el tokenizador de referencia en
+Python, commiteálos como `testdata/*.json`, y fijá contra ellos para siempre.
 
-| Test | Asserts |
+| Test | Verifica |
 |---|---|
-| `TestEncode_MatchesReferenceFixtures` | every fixture pair encodes identically — the only test that really matters |
-| `TestEncode_Spanish` | accented words, `ñ`, `¿¡`, with `StripAccents` both on and off |
-| `TestEncode_UnknownWord` | one `[UNK]`, not one per character |
-| `TestEncode_SpecialTokens` | `[CLS]`/`[SEP]` placement, and their absence when unset |
-| `TestEncode_Truncation` | `MaxLen` truncates and still closes with `[SEP]` |
-| `TestEncode_EmptyString` | special tokens only, no panic |
-| `TestEncode_ReusesDst` | a second call appends into the caller's slice without reallocating |
-| `TestEncode_ZeroAllocsWithCapacity` | `testing.AllocsPerRun` == 0 when `dst` has capacity |
-| `TestDecode_RoundTrip` | for text that tokenises cleanly |
-| `TestEncode_Emoji` | multi-byte sequences do not split mid-rune |
+| `TestEncode_MatchesReferenceFixtures` | cada par de fixture codifica idénticamente — el único test que realmente importa |
+| `TestEncode_Spanish` | palabras acentuadas, `ñ`, `¿¡`, con `StripAccents` encendido y apagado |
+| `TestEncode_UnknownWord` | un `[UNK]`, no uno por carácter |
+| `TestEncode_SpecialTokens` | ubicación de `[CLS]`/`[SEP]`, y su ausencia cuando no están configurados |
+| `TestEncode_Truncation` | `MaxLen` trunca y aun así cierra con `[SEP]` |
+| `TestEncode_EmptyString` | solo tokens especiales, sin pánico |
+| `TestEncode_ReusesDst` | una segunda llamada agrega al slice del llamador sin reasignar |
+| `TestEncode_ZeroAllocsWithCapacity` | `testing.AllocsPerRun` == 0 cuando `dst` tiene capacidad |
+| `TestDecode_RoundTrip` | para texto que tokeniza limpio |
+| `TestEncode_Emoji` | las secuencias multibyte no se parten a mitad de rune |
 
-## Acceptance checklist
+## Checklist de aceptación
 
 ```bash
 go vet ./...
 gotest
-ls testdata/*.json                        # fixtures committed
+ls testdata/*.json                        # fixtures commiteados
 GOOS=js GOARCH=wasm go build ./...
-grep -rn "golang.org/x/" .                # → empty, or justified in the README
+grep -rn "golang.org/x/" .                # → vacío, o justificado en el README
 ```

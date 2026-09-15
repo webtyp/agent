@@ -1,53 +1,55 @@
 ---
-PLAN: "feat: webtyp/webgpu — navigator.gpu bindings for Go/WASM"
+PLAN: "feat: webtyp/webgpu — bindings de navigator.gpu para Go/WASM"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-REPO: webtyp/webgpu (to be created)
+REPO: webtyp/webgpu (por crear)
 ---
 
-> New repository. Moves to `webgpu/docs/PLAN.md` once the repository exists.
-> Master index: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
-> **Phase 5.** Do not start before Phase 3 ships — the product works without this.
+> Repositorio nuevo. Se mueve a `webgpu/docs/PLAN.md` cuando el repositorio exista.
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> **Fase 5.** No arrancar antes de que la fase 3 esté entregada — el producto funciona sin esto.
 
 # Plan — `webtyp/webgpu`
 
-## Single responsibility
+## Responsabilidad única
 
-Typed Go access to the browser's WebGPU compute API. Adapter and device acquisition,
-buffers, shader modules, bind groups, compute pipelines, dispatch, readback.
+Acceso tipado desde Go a la API de cómputo WebGPU del navegador. Obtención de adapter y
+device, buffers, módulos de shader, bind groups, pipelines de cómputo, dispatch y lectura
+de resultados.
 
-It knows nothing about machine learning. No tensors, no layers, no attention — those are
-`webtyp/nn`. This package could equally serve image processing or physics, and keeping it
-that way is what stops GPU lifetime bugs and model bugs from tangling.
+No sabe nada de machine learning. Sin tensores, sin capas, sin atención — eso es
+`webtyp/nn`. Este paquete podría servir igual para procesamiento de imágenes o física, y
+mantenerlo así es lo que evita que los bugs de ciclo de vida de GPU y los bugs de modelo se
+enreden.
 
-Compute only: no render pipelines, no swap chains, no canvas. Rendering is a separate
-concern and nothing in this project needs it.
+Solo cómputo: sin render pipelines, sin swap chains, sin canvas. El renderizado es otra
+preocupación y nada en este proyecto lo necesita.
 
-## Scope warning
+## Advertencia de alcance
 
-This is the largest and least certain piece of the whole effort, and it is deliberately
-last. Phase 3's static embedder makes semantic search work without a single line of GPU
-code. If this repository stalls, the product does not.
+Esta es la pieza más grande y más incierta de todo el esfuerzo, y va deliberadamente
+última. El embedder estático de la fase 3 hace funcionar la búsqueda semántica sin una sola
+línea de código de GPU. Si este repositorio se traba, el producto no.
 
-Two constraints shape everything below:
+Dos restricciones moldean todo lo de abajo:
 
-1. **Everything in WebGPU is async and promise-based.** `requestAdapter`,
-   `requestDevice`, `mapAsync`, `onSubmittedWorkDone` are all promises.
-   `webtyp.com/await` handles a one-shot promise, and that is the right primitive — but
-   under TinyGo wasm a goroutine blocking on a channel while the JS event loop must run
-   to resolve the promise is exactly the deadlock shape `indexdb`'s
-   `docs/LAST_PLAN_EXECUTED.md` already warns about. **Prove the await pattern works
-   against a trivial compute shader before writing any API surface.** That spike is task
-   zero.
+1. **Todo en WebGPU es asíncrono y basado en promesas.** `requestAdapter`,
+   `requestDevice`, `mapAsync` y `onSubmittedWorkDone` son todas promesas.
+   `webtyp.com/await` maneja una promesa de un solo disparo, y esa es la primitiva
+   correcta — pero bajo TinyGo wasm, una goroutine bloqueada en un canal mientras el event
+   loop de JS tiene que correr para resolver la promesa es exactamente la forma de deadlock
+   contra la que ya advierte el `docs/LAST_PLAN_EXECUTED.md` de `indexdb`. **Probá que el
+   patrón de await funciona contra un shader de cómputo trivial antes de escribir una sola
+   superficie de API.** Ese spike es la tarea cero.
 
-2. **Errors are asynchronous too.** WebGPU reports validation and out-of-memory errors
-   through `pushErrorScope`/`popErrorScope`, not exceptions. A shader that fails
-   validation does not throw — it produces zeros. Silent wrong answers are the default
-   failure mode, so error scopes are not optional polish; they are in the first
-   implementation.
+2. **Los errores también son asíncronos.** WebGPU reporta errores de validación y de falta
+   de memoria a través de `pushErrorScope`/`popErrorScope`, no con excepciones. Un shader
+   que falla la validación no lanza nada — produce ceros. Las respuestas silenciosamente
+   incorrectas son el modo de falla por defecto, así que los error scopes no son un pulido
+   opcional; van en la primera implementación.
 
-## API sketch
+## Bosquejo de API
 
 ```go
 // Available reports whether navigator.gpu exists. Always check: WebGPU is absent
@@ -76,43 +78,43 @@ func (p *Pass) Dispatch(x, y, z int)
 func (p *Pass) Submit(ctx *context.Context) error     // awaits onSubmittedWorkDone
 ```
 
-`Buffer.Write`/`Read` use `js.CopyBytesToJS`/`CopyBytesToGo` — the same bulk-copy
-primitives as `indexdb` (master index **D1**), for the same reason.
+`Buffer.Write`/`Read` usan `js.CopyBytesToJS`/`CopyBytesToGo` — las mismas primitivas de
+copia masiva que `indexdb` (índice maestro **D1**), por la misma razón.
 
-Every `js.Func` created for a promise callback must be `Release()`d. A leaked `js.Func`
-in a per-dispatch code path leaks on every inference call; make it a documented rule and
-a review checklist item.
+Todo `js.Func` creado para un callback de promesa tiene que hacer `Release()`. Un
+`js.Func` filtrado en un camino de código por dispatch filtra en cada llamada de
+inferencia; convertilo en regla documentada y en ítem de checklist de revisión.
 
-## Feature detection and fallback
+## Detección de capacidad y fallback
 
-`Available()` returning false is a normal condition, not an error, and the caller — the
-Phase 5 `embed` adapter — falls back to the Phase 3 static embedder. That fallback path
-must be tested, because it will be the common path for a long time.
+Que `Available()` devuelva false es una condición normal, no un error, y el llamador — el
+adaptador de `embed` de la fase 5 — cae al embedder estático de la fase 3. Ese camino de
+fallback tiene que estar testeado, porque va a ser el camino común durante mucho tiempo.
 
 ## Tests
 
-Browser-only, `//go:build wasm`, under `gotest -tinygo`. Skip cleanly with an explicit
-message when `Available()` is false, so CI without a GPU reports "skipped", never a false
-pass.
+Solo en navegador, `//go:build wasm`, bajo `gotest -tinygo`. Se saltean limpiamente con un
+mensaje explícito cuando `Available()` es false, para que un CI sin GPU reporte "salteado",
+nunca un falso positivo.
 
-| Test | Asserts |
+| Test | Verifica |
 |---|---|
-| `TestAvailable_NoPanic` | on a device without WebGPU |
-| `TestRequestDevice_Succeeds` | and reports plausible limits |
-| `TestBuffer_WriteReadRoundTrip` | 1 MB round-trips byte for byte |
-| `TestShader_TrivialCompute` | a shader that doubles every element of a 1024-float buffer produces exactly that |
-| `TestShader_InvalidWGSLIsError` | **not zeros** — the error-scope contract |
-| `TestDispatch_ExceedsWorkgroupLimit` | an error before submission, not a device loss |
-| `TestBuffer_CloseTwice` | idempotent |
-| `TestDevice_FuncsReleased` | a dispatch loop of 1000 iterations leaks no `js.Func` |
-| `TestSubmit_AwaitsCompletion` | results are readable immediately after `Submit` returns |
+| `TestAvailable_NoPanic` | en un dispositivo sin WebGPU |
+| `TestRequestDevice_Succeeds` | y reporta límites plausibles |
+| `TestBuffer_WriteReadRoundTrip` | 1 MB hace round-trip byte a byte |
+| `TestShader_TrivialCompute` | un shader que duplica cada elemento de un buffer de 1024 floats produce exactamente eso |
+| `TestShader_InvalidWGSLIsError` | **no ceros** — el contrato de error scope |
+| `TestDispatch_ExceedsWorkgroupLimit` | error antes del submit, no una pérdida de device |
+| `TestBuffer_CloseTwice` | idempotente |
+| `TestDevice_FuncsReleased` | un bucle de 1000 dispatches no filtra ningún `js.Func` |
+| `TestSubmit_AwaitsCompletion` | los resultados son legibles inmediatamente después de que `Submit` retorna |
 
-## Acceptance checklist
+## Checklist de aceptación
 
 ```bash
 GOOS=js GOARCH=wasm go build ./...
 gotest -tinygo
-grep -rn "js.FuncOf" . | wc -l            # every one has a matching Release
-grep -rn "pushErrorScope" .               # → present: async errors are handled
-grep -rn "webtyp.com/nn\|webtyp.com/embed" .   # → empty: no ML knowledge leaked in
+grep -rn "js.FuncOf" . | wc -l            # cada uno tiene su Release
+grep -rn "pushErrorScope" .               # → presente: los errores async se manejan
+grep -rn "webtyp.com/nn\|webtyp.com/embed" .   # → vacío: no se coló conocimiento de ML
 ```

@@ -1,61 +1,64 @@
 ---
-PLAN: "feat: webtyp/weights — model artifact format and browser cache"
+PLAN: "feat: webtyp/weights — formato de artifact de modelo y caché en el navegador"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-REPO: webtyp/weights (to be created)
+REPO: webtyp/weights (por crear)
 ---
 
-> New repository. Moves to `weights/docs/PLAN.md` once the repository exists.
-> Master index: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
-> **Phase 3** — `webtyp/embed` needs this from its first line of code.
+> Repositorio nuevo. Se mueve a `weights/docs/PLAN.md` cuando el repositorio exista.
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> **Fase 3** — `webtyp/embed` lo necesita desde su primera línea de código.
 
 # Plan — `webtyp/weights`
 
-## Single responsibility
+## Responsabilidad única
 
-Getting model parameters from a URL into typed Go slices, once per browser. It owns the
-artifact file format, its reader, the HTTP fetch and the IndexedDB cache. It knows
-nothing about what the numbers mean — no tokenisation, no inference, no embeddings.
+Llevar los parámetros del modelo desde una URL hasta slices tipados de Go, una vez por
+navegador. Es dueño del formato de archivo del artifact, de su lector, del fetch HTTP y del
+caché en IndexedDB. No sabe nada de qué significan los números — sin tokenización, sin
+inferencia, sin embeddings.
 
-## Why a custom format rather than safetensors or GGUF
+## Por qué un formato propio y no safetensors o GGUF
 
-Both are reasonable formats and both are the wrong first move here:
+Ambos son formatos razonables y ambos son el movimiento inicial equivocado acá:
 
-- **safetensors** is a JSON header plus raw tensors — easy to parse, but it carries fp32
-  tensors laid out for a training framework. The static embedder needs an int8 table with
-  per-row scales; converting at load time in the browser means downloading 4× the bytes
-  and spending the client's memory to throw three quarters of it away.
-- **GGUF** carries dozens of quantisation schemes and a metadata model far larger than
-  anything needed here. Implementing enough of it to be correct is a project.
+- **safetensors** es una cabecera JSON más tensores crudos — fácil de parsear, pero lleva
+  tensores fp32 dispuestos para un framework de entrenamiento. El embedder estático
+  necesita una tabla int8 con escalas por fila; convertir en tiempo de carga dentro del
+  navegador significa descargar 4× los bytes y gastar la memoria del cliente para tirar
+  tres cuartos.
+- **GGUF** carga decenas de esquemas de cuantización y un modelo de metadatos muchísimo más
+  grande que cualquier cosa que se necesite acá. Implementar lo suficiente como para ser
+  correcto es un proyecto en sí.
 
-The conversion happens **offline, once**, in a `cmd/` tool that does not ship to the
-browser. What ships is exactly the bytes the browser will use, in the layout it will use
-them in. A safetensors reader can be added later if a model arrives that needs one; it is
-not the starting point.
+La conversión ocurre **offline, una vez**, en una herramienta `cmd/` que no se embarca al
+navegador. Lo que se embarca son exactamente los bytes que el navegador va a usar, en el
+layout en que los va a usar. Un lector de safetensors se puede agregar después si llega un
+modelo que lo requiera; no es el punto de partida.
 
-## Format
+## Formato
 
 ```
 magic    "WTYPW1\0\0"                  8 bytes
 version  uint32 LE                     4
-header   uint32 LE header length       4
-header   JSON: tensors, dtypes, shapes, scales offset, model id, tokenizer config
-tensors  raw, 64-byte aligned, in header order
+header   uint32 LE largo de la cabecera 4
+header   JSON: tensores, dtypes, shapes, offset de escalas, id del modelo, config del tokenizador
+tensors  crudos, alineados a 64 bytes, en el orden de la cabecera
 ```
 
-Design points:
+Puntos de diseño:
 
-- **64-byte alignment** per tensor, so a tensor can be handed to a GPU buffer or
-  reinterpreted with `unsafe.Slice` without a realignment copy.
-- **Little-endian throughout**, matching `webtyp/vector`'s codec. One endianness
-  decision across the system.
-- **Tokeniser config lives in the header**, not in a side file. The vocabulary, the
-  `lowercase` flag and the `strip_accents` flag are model properties; separating them
-  from the weights is how a tokeniser silently drifts out of sync with the model that
-  trained it (`plans/tokenizer.md` explains what that costs for Spanish).
-- **Length and checksum in the header**, so a truncated download is detected before
-  anything is cached.
+- **Alineación a 64 bytes** por tensor, para que un tensor se pueda entregar a un buffer de
+  GPU o reinterpretar con `unsafe.Slice` sin una copia de realineación.
+- **Little-endian en todo**, coincidiendo con el códec de `webtyp/vector`. Una sola
+  decisión de endianness en todo el sistema.
+- **La config del tokenizador vive en la cabecera**, no en un archivo aparte. El
+  vocabulario, el flag `lowercase` y el flag `strip_accents` son propiedades del modelo;
+  separarlos de los pesos es como un tokenizador se desincroniza en silencio del modelo que
+  lo entrenó (`plans/tokenizer.md` explica lo que eso cuesta para el español).
+- **Largo y checksum en la cabecera**, para detectar una descarga truncada antes de cachear
+  nada.
 
 ## API
 
@@ -94,43 +97,44 @@ type LoadConfig struct {
 }
 ```
 
-`Conn` is injected rather than the package opening its own IndexedDB connection: the
-application already has one, and a second connection to the same database is a source of
-version-change deadlocks.
+`Conn` se inyecta en vez de que el paquete abra su propia conexión a IndexedDB: la
+aplicación ya tiene una, y una segunda conexión a la misma base de datos es fuente de
+deadlocks en cambios de versión.
 
-## Cache rules
+## Reglas de caché
 
-- Key: `id + "@" + version`. An upgrade never serves stale weights.
-- Write to the cache **only after** the full body is read and its length and checksum
-  match the header. A partially cached 100 MB artifact that loads without error and
-  produces garbage vectors is the worst outcome available here.
-- Check `navigator.storage.estimate()` before writing; a cache write that pushes the
-  origin over quota can evict the user's document corpus.
-- `Evict(id)` for explicit cleanup, and a documented note that the cache is subject to
-  browser eviction like any other IndexedDB data.
+- Clave: `id + "@" + version`. Una actualización nunca sirve pesos viejos.
+- Escribir al caché **solo después** de leer el cuerpo completo y verificar que su largo y
+  checksum coincidan con la cabecera. Un artifact de 100 MB cacheado a medias que carga sin
+  error y produce vectores basura es el peor resultado disponible acá.
+- Consultar `navigator.storage.estimate()` antes de escribir; una escritura de caché que
+  empuje al origen por encima de la cuota puede desalojar el corpus de documentos del
+  usuario.
+- `Evict(id)` para limpieza explícita, y una nota documentada de que el caché está sujeto
+  al desalojo del navegador como cualquier otro dato de IndexedDB.
 
-## Phase 5 additions
+## Agregados de la fase 5
 
-The transformer encoder needs the same reader with more dtypes (fp16, int4) and a
-`cmd/convert` path from safetensors. Additive; no format change.
+El encoder transformer necesita el mismo lector con más dtypes (fp16, int4) y un camino
+`cmd/convert` desde safetensors. Aditivo; sin cambio de formato.
 
 ## Tests
 
-| Test | Asserts |
+| Test | Verifica |
 |---|---|
-| `TestOpen_RoundTrip` | a fixture artifact written by `cmd/convert` reads back with identical tensors |
+| `TestOpen_RoundTrip` | un artifact de fixture escrito por `cmd/convert` se lee con tensores idénticos |
 | `TestOpen_BadMagic` | error |
-| `TestOpen_TruncatedTensorData` | error, not a short slice |
+| `TestOpen_TruncatedTensorData` | error, no un slice corto |
 | `TestOpen_ChecksumMismatch` | error |
-| `TestOpen_Alignment` | every tensor's data offset is 64-byte aligned |
-| `TestTensor_Float32sZeroCopy` | the returned slice aliases the source buffer |
-| `TestTensor_Row` | row i of an int8 table is the right bytes |
-| `TestLoad_CachesAfterFirstFetch` | second call issues no HTTP request (mock fetcher) |
-| `TestLoad_PartialBodyNotCached` | a truncated body leaves the cache empty |
+| `TestOpen_Alignment` | el offset de datos de todo tensor está alineado a 64 bytes |
+| `TestTensor_Float32sZeroCopy` | el slice devuelto aliasa el buffer fuente |
+| `TestTensor_Row` | la fila i de una tabla int8 son los bytes correctos |
+| `TestLoad_CachesAfterFirstFetch` | la segunda llamada no emite request HTTP (fetcher mock) |
+| `TestLoad_PartialBodyNotCached` | un cuerpo truncado deja el caché vacío |
 | `TestLoad_VersionBumpRefetches` | |
-| `TestLoad_ProgressCallback` | called monotonically, ending at total |
+| `TestLoad_ProgressCallback` | se llama monotónicamente, terminando en el total |
 
-## Acceptance checklist
+## Checklist de aceptación
 
 ```bash
 go vet ./...

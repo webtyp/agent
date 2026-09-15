@@ -1,40 +1,40 @@
 ---
-PLAN: "feat: webtyp/vector — vector maths, arena, top-k"
+PLAN: "feat: webtyp/vector — math vectorial, arena, top-k"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-REPO: webtyp/vector (to be created)
+REPO: webtyp/vector (por crear)
 ---
 
-> New repository. This file lives in `agent/docs/plans/` until `webtyp/vector` exists,
-> then moves to `vector/docs/PLAN.md` unchanged.
-> Master index: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> Repositorio nuevo. Este archivo vive en `agent/docs/plans/` hasta que `webtyp/vector`
+> exista; entonces se mueve a `vector/docs/PLAN.md` sin modificaciones.
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
 
 # Plan — `webtyp/vector`
 
-## Single responsibility
+## Responsabilidad única
 
-Numbers. Similarity arithmetic over `float32` slices, the contiguous arena they live in,
-a fixed-size top-k selector, and the little-endian byte codec that moves them to and from
-storage.
+Números. Aritmética de similitud sobre slices de `float32`, la arena contigua donde viven,
+un selector top-k de tamaño fijo, y el códec little-endian que los mueve hacia y desde el
+almacenamiento.
 
-This package knows nothing about documents, text, embeddings, storage or JavaScript. It
-has **zero dependencies** (not even `webtyp.com/fmt` outside error construction) and
-compiles for every target, which means the whole of it is testable in standard Go without
-a browser. That property is the reason it is a separate repository.
+Este paquete no sabe nada de documentos, texto, embeddings, almacenamiento ni JavaScript.
+Tiene **cero dependencias** (ni siquiera `webtyp.com/fmt` fuera de la construcción de
+errores) y compila para todos los targets, lo que significa que todo él es testeable en Go
+estándar sin navegador. Esa propiedad es la razón de que sea un repositorio aparte.
 
-## Why it is not part of `vectordb`
+## Por qué no es parte de `vectordb`
 
-Put this code inside the store and none of it can be tested without a WASM target and a
-browser harness. Numerical code is exactly the code that most needs fast, plain
-`go test` iteration and `testing.AllocsPerRun`. Keeping it out also makes the allocation
-budget enforceable: this package's tests assert zero allocations, and no storage or JS
-concern can creep in to break that.
+Si este código vive dentro del almacén, nada de él se puede testear sin un target WASM y
+un harness de navegador. El código numérico es exactamente el código que más necesita
+iteración rápida con `go test` plano y `testing.AllocsPerRun`. Mantenerlo afuera también
+hace exigible el presupuesto de allocations: los tests de este paquete afirman cero
+allocations, y ninguna preocupación de storage o JS puede colarse a romperlo.
 
-## Verify first
+## Verificar primero
 
-**O2 from the master index:** does `webtyp/binary` already provide a little-endian
-`float32` codec? If it does, depend on it and delete §4 from this plan.
+**O2 del índice maestro:** ¿`webtyp/binary` ya provee un códec little-endian de `float32`?
+Si lo provee, dependé de él y borrá la §4 de este plan.
 
 ```bash
 go doc webtyp.com/binary
@@ -42,7 +42,7 @@ go doc webtyp.com/binary
 
 ## API
 
-### 1. `arena.go` — where vectors live
+### 1. `arena.go` — dónde viven los vectores
 
 ```go
 // Arena is a contiguous block of N × Dim float32 values. Vector i occupies
@@ -77,7 +77,7 @@ func (a *Arena) Set(i int, v []float32) error
 func (a *Arena) Grow(capacity int)
 ```
 
-### 2. `math.go` — the arithmetic
+### 2. `math.go` — la aritmética
 
 ```go
 // Dot returns the dot product. For L2-normalised vectors this IS the cosine
@@ -90,12 +90,12 @@ func Normalize(v []float32)         // in place; a zero vector is left untouched
 func Cosine(a, b []float32) float32 // for un-normalised input; Dot is preferred
 ```
 
-`Dot` is the hot loop of the entire system. Write it plainly first, with a 4-way unrolled
-variant behind a benchmark — and keep the plain one if the benchmark does not justify the
-unrolled one. Do not reach for WASM SIMD: TinyGo's support is incomplete, and an
-unverifiable intrinsic is worse than a loop that is correct everywhere.
+`Dot` es el bucle caliente de todo el sistema. Escribilo plano primero, con una variante
+desenrollada de a 4 detrás de un benchmark — y quedate con la plana si el benchmark no
+justifica la desenrollada. No recurras a SIMD de WASM: el soporte de TinyGo es incompleto,
+y un intrínseco que no se puede verificar es peor que un bucle correcto en todas partes.
 
-### 3. `topk.go` — selecting without sorting
+### 3. `topk.go` — seleccionar sin ordenar
 
 ```go
 // TopK keeps the k highest-scoring ids seen, using a fixed-size min-heap.
@@ -114,10 +114,10 @@ type Match struct {
 }
 ```
 
-For small k (the common case, k ≤ 100) a linear insert into a sorted fixed array beats a
-heap. Benchmark both and pick one; do not ship both.
+Para k chico (el caso común, k ≤ 100) una inserción lineal en un arreglo fijo ordenado le
+gana a un heap. Medí ambos y elegí uno; no embarques los dos.
 
-### 4. `codec.go` — bytes in, bytes out
+### 4. `codec.go` — bytes que entran, bytes que salen
 
 ```go
 // ByteLen returns the encoded size of a dim-element vector: dim*4.
@@ -138,21 +138,21 @@ func (a *Arena) Bytes() []byte
 func (a *Arena) FromBytes(src []byte, count int) error
 ```
 
-Little-endian is the wire format because WASM is little-endian and so is every target
-that matters. Use `unsafe.Slice` for the zero-copy path on little-endian architectures,
-guarded by a build tag, with an explicit `math.Float32bits` loop as the big-endian
-fallback:
+Little-endian es el formato de cable porque WASM es little-endian y también lo es todo
+target que importa. Usá `unsafe.Slice` para el camino sin copia en arquitecturas
+little-endian, protegido por build tag, con un bucle explícito de `math.Float32bits` como
+fallback big-endian:
 
 ```
 codec_le.go   //go:build 386 || amd64 || arm || arm64 || wasm || riscv64 || loong64
 codec_be.go   //go:build !(386 || amd64 || ...)
 ```
 
-The fallback is not hypothetical correctness theatre: a server-side backend reading a
-blob written by a browser must decode it identically, and `gotest` runs on whatever CI
-provides.
+El fallback no es teatro de corrección hipotética: un backend del lado del servidor
+leyendo un blob escrito por un navegador tiene que decodificarlo idénticamente, y `gotest`
+corre sobre lo que sea que provea CI.
 
-### 5. `search.go` — putting it together
+### 5. `search.go` — todo junto
 
 ```go
 // Search scores query against every slot in the arena and offers the results to out.
@@ -163,9 +163,9 @@ provides.
 func (a *Arena) Search(query []float32, keep func(i int) bool, out *TopK)
 ```
 
-### 6. `quantize.go` — Phase 5, stubbed now
+### 6. `quantize.go` — fase 5, solo declarado por ahora
 
-Declare the intent, implement later:
+Declarar la intención, implementar después:
 
 ```go
 // Quantizer compresses an arena to int8 with a per-vector scale, cutting resident
@@ -173,44 +173,44 @@ Declare the intent, implement later:
 // NOT IMPLEMENTED — Phase 5.
 ```
 
-Do not write it in v1. A quantiser without a corpus to measure recall loss against is a
-guess.
+No lo escribas en v1. Un cuantizador sin un corpus contra el cual medir la pérdida de
+recall es una adivinanza.
 
 ## Tests
 
-Standard library only, no external assertion package.
+Solo librería estándar, sin paquetes externos de aserciones.
 
-| Test | Asserts |
+| Test | Verifica |
 |---|---|
-| `TestDot_KnownValues` | hand-computed products, including orthogonal (0) and identical (1) vectors |
-| `TestDot_EmptyAndMismatched` | length mismatch is an error, not a silent truncation or a panic |
-| `TestNormalize_UnitLength` | `Norm` after `Normalize` is 1 within 1e-6 |
-| `TestNormalize_ZeroVector` | a zero vector does not produce NaN |
-| `TestCosine_MatchesDotOfNormalised` | the two paths agree within 1e-6 |
-| `TestArena_AppendAtRoundTrip` | `At(i)` returns what `Append` stored, normalised |
-| `TestArena_AtIsAView` | writing through `At` mutates the arena — pins the aliasing contract |
-| `TestArena_GrowPreserves` | contents survive a `Grow` |
-| `TestCodec_RoundTrip` | 384 random floats survive encode/decode bit-exactly |
-| `TestCodec_LittleEndianLayout` | `Encode([1.0])` produces exactly `00 00 80 3F` — pins the wire format against an accidental change |
-| `TestCodec_DecodeShortInput` | a truncated blob is an error |
-| `TestArena_BytesFromBytesRoundTrip` | a 1024-vector arena survives `Bytes` → `FromBytes` |
-| `TestTopK_OrdersDescending` | ties included |
-| `TestTopK_KLargerThanInput` | returns everything, no padding |
-| `TestTopK_Reset` | reuse leaks nothing from the previous query |
-| `TestSearch_MatchesNaiveReference` | 10 000 random vectors, 384 dims: identical results to a naive sort-everything implementation |
-| `TestSearch_KeepFilters` | filtered slots never appear |
-| `TestSearch_ZeroAllocs` | **`testing.AllocsPerRun` == 0** — the budget from master index D1, enforced |
+| `TestDot_KnownValues` | productos calculados a mano, incluyendo vectores ortogonales (0) e idénticos (1) |
+| `TestDot_EmptyAndMismatched` | largos distintos dan error, no truncamiento silencioso ni pánico |
+| `TestNormalize_UnitLength` | `Norm` tras `Normalize` es 1 dentro de 1e-6 |
+| `TestNormalize_ZeroVector` | un vector cero no produce NaN |
+| `TestCosine_MatchesDotOfNormalised` | ambos caminos coinciden dentro de 1e-6 |
+| `TestArena_AppendAtRoundTrip` | `At(i)` devuelve lo que `Append` guardó, normalizado |
+| `TestArena_AtIsAView` | escribir a través de `At` muta la arena — fija el contrato de aliasing |
+| `TestArena_GrowPreserves` | el contenido sobrevive a un `Grow` |
+| `TestCodec_RoundTrip` | 384 floats aleatorios sobreviven encode/decode bit a bit |
+| `TestCodec_LittleEndianLayout` | `Encode([1.0])` produce exactamente `00 00 80 3F` — fija el formato de cable contra un cambio accidental |
+| `TestCodec_DecodeShortInput` | un blob truncado da error |
+| `TestArena_BytesFromBytesRoundTrip` | una arena de 1024 vectores sobrevive `Bytes` → `FromBytes` |
+| `TestTopK_OrdersDescending` | empates incluidos |
+| `TestTopK_KLargerThanInput` | devuelve todo, sin relleno |
+| `TestTopK_Reset` | la reutilización no filtra nada de la consulta anterior |
+| `TestSearch_MatchesNaiveReference` | 10 000 vectores aleatorios, 384 dims: resultados idénticos a una implementación ingenua que ordena todo |
+| `TestSearch_KeepFilters` | las posiciones filtradas nunca aparecen |
+| `TestSearch_ZeroAllocs` | **`testing.AllocsPerRun` == 0** — el presupuesto de D1 del índice maestro, hecho exigible |
 
 Benchmarks: `BenchmarkDot_384`, `BenchmarkSearch_10k_384`, `BenchmarkTopK_Offer`.
-`BenchmarkSearch_10k_384` is the number the whole design is judged by; record it in the
-README so a regression is visible.
+`BenchmarkSearch_10k_384` es el número por el que se juzga todo el diseño; registralo en el
+README para que una regresión sea visible.
 
-## Acceptance checklist
+## Checklist de aceptación
 
 ```bash
 go vet ./...
 gotest
 go test -run TestSearch_ZeroAllocs -v ./...
 GOOS=js GOARCH=wasm go build ./...
-grep -rn "syscall/js\|webtyp.com/storage\|webtyp.com/indexdb" .   # → empty: no deps leaked in
+grep -rn "syscall/js\|webtyp.com/storage\|webtyp.com/indexdb" .   # → vacío: no se coló ninguna dependencia
 ```

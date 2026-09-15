@@ -1,29 +1,30 @@
 ---
-PLAN: "feat: webtyp/embed — in-browser embedding generation"
+PLAN: "feat: webtyp/embed — generación de embeddings en el navegador"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-REPO: webtyp/embed (to be created)
+REPO: webtyp/embed (por crear)
 ---
 
-> New repository. Moves to `embed/docs/PLAN.md` once the repository exists.
-> Master index: https://github.com/webtyp/agent/blob/main/docs/PLAN.md — decisions
-> **D4** (two phases behind one port) and **D5** (Spanish drives model size).
+> Repositorio nuevo. Se mueve a `embed/docs/PLAN.md` cuando el repositorio exista.
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md — decisiones
+> **D4** (dos fases detrás de un puerto) y **D5** (el español manda en el tamaño del modelo).
 
 # Plan — `webtyp/embed`
 
-## Single responsibility
+## Responsabilidad única
 
-Text → vectors, in the browser. It owns the `Embedder` port and the pipeline that
-implements it: tokenise, run the model, pool, normalise.
+Texto → vectores, en el navegador. Es dueño del puerto `Embedder` y del pipeline que lo
+implementa: tokenizar, correr el modelo, hacer pooling, normalizar.
 
-It does **not** own tokenisation (`webtyp/tokenizer`), vector arithmetic
-(`webtyp/vector`), storage, or — in Phase 5 — the GPU (`webtyp/webgpu`, `webtyp/nn`).
+**No** es dueño de la tokenización (`webtyp/tokenizer`), ni de la aritmética vectorial
+(`webtyp/vector`), ni del almacenamiento, ni —en la fase 5— de la GPU (`webtyp/webgpu`,
+`webtyp/nn`).
 
-## The port
+## El puerto
 
-This interface is the seam the whole architecture pivots on. Everything downstream
-(`vectordb`, `agent`) depends on this and nothing else about embeddings.
+Esta interfaz es la juntura sobre la que pivotea toda la arquitectura. Todo lo que está
+aguas abajo (`vectordb`, `agent`) depende de esto y de nada más sobre embeddings.
 
 ```go
 // Embedder turns text into vectors. Implementations run entirely in the browser.
@@ -45,46 +46,47 @@ type Embedder interface {
 }
 ```
 
-`ID()` is not decoration. Mixing vectors from two models produces results that look
-plausible and are meaningless — the failure has no symptom. Storing the id is what turns
-that into a startup error.
+`ID()` no es decoración. Mezclar vectores de dos modelos produce resultados que parecen
+plausibles y no significan nada — la falla no tiene síntoma. Guardar el id es lo que
+convierte eso en un error de arranque.
 
-## Phase 3 — static embeddings (this plan)
+## Fase 3 — embeddings estáticos (este plan)
 
-A distilled token-embedding table (model2vec / "potion" family): tokenise, look up each
-token's vector, mean-pool, normalise. No attention, no forward pass, no GPU, no matrix
-multiplication beyond an averaged lookup.
+Una tabla de embeddings de tokens destilada (familia model2vec / "potion"): tokenizar,
+buscar el vector de cada token, promediar, normalizar. Sin atención, sin forward pass, sin
+GPU, sin multiplicación de matrices más allá de una búsqueda promediada.
 
-Why this first, when the destination is a WebGPU transformer: it is pure Go, TinyGo-clean
-today, roughly 30 MB quantised, and it delivers a **complete working pipeline** before any
-GPU code exists. Phase 5 then replaces this implementation behind the same interface
-without touching `vectordb`, `indexdb`, `storage` or `model`. If Phase 5 slips, the
-product still works.
+Por qué esto primero, si el destino es un transformer sobre WebGPU: es Go puro, limpio bajo
+TinyGo hoy, alrededor de 30 MB cuantizado, y entrega un **pipeline completo funcionando**
+antes de que exista código de GPU. La fase 5 después reemplaza esta implementación detrás
+de la misma interfaz sin tocar `vectordb`, `indexdb`, `storage` ni `model`. Si la fase 5 se
+demora, el producto igual funciona.
 
-Retrieval quality is measurably below a full encoder. That trade is accepted for Phase 3
-and revisited with numbers, not opinions — see §Evaluation.
+La calidad de recuperación queda mediblemente por debajo de un encoder completo. Ese
+compromiso se acepta para la fase 3 y se revisa con números, no con opiniones — ver
+§Evaluación.
 
-### 2. Model selection — OPEN DECISION (master index O1)
+### 2. Selección de modelo — DECISIÓN ABIERTA (índice maestro O1)
 
-Must be resolved before implementation. The constraint from **D5**: multilingual models
-carry a ~250 k-token vocabulary, and the embedding table alone is
-`250 000 × dim × 4` bytes in fp32 — for a static model the table **is** the model.
+Debe resolverse antes de implementar. La restricción de **D5**: los modelos multilingües
+cargan un vocabulario de ~250 k tokens, y la tabla de embeddings sola pesa
+`250 000 × dim × 4` bytes en fp32 — para un modelo estático, la tabla **es** el modelo.
 
-| Candidate | Dim | fp32 table | int8 table | Spanish |
+| Candidato | Dim | Tabla fp32 | Tabla int8 | Español |
 |---|---|---|---|---|
-| `potion-multilingual-128M` | 256 | ~256 MB | ~64 MB | yes |
-| a 128-dim multilingual distillation | 128 | ~128 MB | ~32 MB | yes |
-| English-only static (`potion-base-8M`) | 256 | ~32 MB | ~8 MB | **no — disqualified by D5** |
+| `potion-multilingual-128M` | 256 | ~256 MB | ~64 MB | sí |
+| una destilación multilingüe de 128 dims | 128 | ~128 MB | ~32 MB | sí |
+| estático solo-inglés (`potion-base-8M`) | 256 | ~32 MB | ~8 MB | **no — descartado por D5** |
 
-Working assumption until decided: **multilingual, 256 dims, int8 table with per-row
-scales**. Fill this table with measured numbers for the actual artifacts before choosing;
-the figures above are order-of-magnitude.
+Supuesto de trabajo hasta decidir: **multilingüe, 256 dims, tabla int8 con escalas por
+fila**. Completá esta tabla con números medidos sobre los artifacts reales antes de elegir;
+las cifras de arriba son de orden de magnitud.
 
-Deliverable of this decision: a one-off offline converter (a `cmd/` tool, Go, not shipped
-to the browser) that turns the published model into the artifact format in
-`plans/weights.md`.
+Entregable de esta decisión: un conversor offline de una sola vez (una herramienta en
+`cmd/`, en Go, que no se embarca al navegador) que transforme el modelo publicado al
+formato de artifact de `plans/weights.md`.
 
-### 3. `static.go` — the implementation
+### 3. `static.go` — la implementación
 
 ```go
 type StaticConfig struct {
@@ -96,73 +98,73 @@ type StaticConfig struct {
 func NewStatic(cfg StaticConfig) (Embedder, error)
 ```
 
-Hot loop per text: encode → for each token id, accumulate its dequantised row into an
-accumulator → divide by token count → `vector.Normalize`. One accumulator buffer, reused
-across the batch: zero allocations per text after warm-up.
+Bucle caliente por texto: codificar → por cada id de token, acumular su fila
+descuantizada en un acumulador → dividir por la cantidad de tokens → `vector.Normalize`.
+Un único buffer acumulador, reutilizado en todo el lote: cero allocations por texto después
+del calentamiento.
 
-int8 dequantisation is `float32(q) * scale[row]`, fused into the accumulation so the
-dequantised row is never materialised.
+La descuantización int8 es `float32(q) * scale[row]`, fusionada dentro de la acumulación
+para que la fila descuantizada nunca se materialice.
 
-### 4. `mock.go` — deterministic embedder for downstream tests
+### 4. `mock.go` — embedder determinístico para tests aguas abajo
 
-`vectordb` and `agent` must test without a model. Ship a deterministic embedder derived
-from a text hash — same text, same vector, in-package, no artifact needed. Exported,
-because it is `DEFAULT_LLM_SKILL.md` §2's "every external interface gets a mock" applied
-across repository boundaries.
+`vectordb` y `agent` tienen que testear sin un modelo. Embarcá un embedder determinístico
+derivado de un hash del texto — mismo texto, mismo vector, dentro del paquete, sin artifact
+necesario. Exportado, porque es el "toda interfaz externa lleva un mock" de
+`DEFAULT_LLM_SKILL.md` §2 aplicado a través de fronteras de repositorio.
 
-### 5. Artifact loading and caching
+### 5. Carga y caché del artifact
 
-First load fetches the artifact over HTTP (`webtyp.com/fetch`) and stores it in
-IndexedDB; subsequent loads read it from there. Once per browser, not once per session —
-at 30-100 MB the difference is the product being usable or not.
+La primera carga baja el artifact por HTTP (`webtyp.com/fetch`) y lo guarda en IndexedDB;
+las cargas siguientes lo leen de ahí. Una vez por navegador, no una vez por sesión — a
+30-100 MB la diferencia es que el producto sea usable o no.
 
-Cache key includes the model id and artifact version, so an upgrade does not serve stale
-weights. A partial download must not be cached: write the blob only after the full body
-is read and its length checked against the header.
+La clave de caché incluye el id del modelo y la versión del artifact, así que una
+actualización no sirve pesos viejos. Una descarga parcial no debe cachearse: escribí el
+blob recién después de leer el cuerpo completo y verificar su largo contra la cabecera.
 
-## Phase 5 — transformer encoder
+## Fase 5 — encoder transformer
 
-A second implementation, `NewTransformer`, over `webtyp/nn` and `webtyp/webgpu`. Same
-`Embedder` interface, different `ID()`. It is specified in `plans/nn.md`; nothing in this
-plan blocks on it, and nothing here needs to change when it lands except adding a
-constructor.
+Una segunda implementación, `NewTransformer`, sobre `webtyp/nn` y `webtyp/webgpu`. Misma
+interfaz `Embedder`, distinto `ID()`. Está especificada en `plans/nn.md`; nada de este plan
+se bloquea por ella, y nada de acá cambia cuando aterrice salvo agregar un constructor.
 
-## Evaluation
+## Evaluación
 
-Quality is not assertable in a unit test, so it gets its own harness — otherwise the
-Phase 3 → Phase 5 trade is decided on vibes:
+La calidad no es afirmable en un test unitario, así que tiene su propio harness — si no, el
+compromiso fase 3 → fase 5 se decide por intuición:
 
-- A small Spanish retrieval set committed as `testdata/` (queries, documents, relevance
-  judgements), a few hundred entries.
-- `cmd/eval` reports recall@1, recall@10 and MRR for any `Embedder`.
-- Results recorded in the README, per model id. Phase 5 must beat Phase 3 on this
-  harness to justify its existence.
+- Un conjunto chico de recuperación en español commiteado como `testdata/` (consultas,
+  documentos, juicios de relevancia), unos pocos cientos de entradas.
+- `cmd/eval` reporta recall@1, recall@10 y MRR para cualquier `Embedder`.
+- Resultados registrados en el README, por id de modelo. La fase 5 tiene que ganarle a la
+  fase 3 en este harness para justificar su existencia.
 
 ## Tests
 
-| Test | Asserts |
+| Test | Verifica |
 |---|---|
 | `TestStatic_DimMatchesArtifact` | |
-| `TestStatic_Deterministic` | the same text twice gives bit-identical vectors |
-| `TestStatic_Normalised` | every output has L2 norm 1 within 1e-6 |
-| `TestStatic_BatchMatchesSingle` | `Embed` over 10 texts equals 10 single calls |
-| `TestStatic_EmptyText` | a defined vector, not NaN, not a panic |
-| `TestStatic_AllUnknownTokens` | a string of nothing but `[UNK]` does not divide by zero |
-| `TestStatic_WrongDstLength` | an error, never a partial write |
-| `TestStatic_ZeroAllocsPerText` | after warm-up, with `dst` pre-sized |
-| `TestStatic_Dequantise` | int8 + scale reproduces the fp32 reference within tolerance |
-| `TestMock_Deterministic` | the mock's contract, since other repositories rely on it |
-| `TestCache_SecondLoadSkipsFetch` | asserted through a mock fetcher |
-| `TestCache_PartialDownloadNotCached` | a truncated body leaves no cache entry |
+| `TestStatic_Deterministic` | el mismo texto dos veces da vectores idénticos bit a bit |
+| `TestStatic_Normalised` | toda salida tiene norma L2 igual a 1 dentro de 1e-6 |
+| `TestStatic_BatchMatchesSingle` | `Embed` sobre 10 textos equivale a 10 llamadas individuales |
+| `TestStatic_EmptyText` | un vector definido, no NaN, no pánico |
+| `TestStatic_AllUnknownTokens` | una cadena de puro `[UNK]` no divide por cero |
+| `TestStatic_WrongDstLength` | error, nunca una escritura parcial |
+| `TestStatic_ZeroAllocsPerText` | tras el calentamiento, con `dst` predimensionado |
+| `TestStatic_Dequantise` | int8 + escala reproduce la referencia fp32 dentro de tolerancia |
+| `TestMock_Deterministic` | el contrato del mock, ya que otros repositorios dependen de él |
+| `TestCache_SecondLoadSkipsFetch` | verificado con un fetcher mock |
+| `TestCache_PartialDownloadNotCached` | un cuerpo truncado no deja entrada de caché |
 | `TestCache_VersionBumpInvalidates` | |
 
-## Acceptance checklist
+## Checklist de aceptación
 
 ```bash
 go vet ./...
 gotest
-gotest -tinygo                            # cache path needs a browser
+gotest -tinygo                            # el camino de caché necesita navegador
 GOOS=js GOARCH=wasm go build ./...
-go run ./cmd/eval -model static           # recall@10 recorded in README
-grep -rn "webtyp.com/vectordb" .          # → empty: the port does not know its consumer
+go run ./cmd/eval -model static           # recall@10 registrado en el README
+grep -rn "webtyp.com/vectordb" .          # → vacío: el puerto no conoce a su consumidor
 ```

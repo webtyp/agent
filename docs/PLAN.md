@@ -1,298 +1,320 @@
 ---
-PLAN: "feat: browser-native semantic search — master index"
+PLAN: "feat: búsqueda semántica nativa en el navegador — índice maestro"
 TAG: v0.2.0
 EXECUTOR: unassigned
 REVIEWER: none
 ---
 
-> This is the **index plan**. It owns no code. Every repository listed in §5 carries its
-> own `docs/PLAN.md` with the concrete diff; this file owns the architecture, the
-> shared contracts, the build order and the acceptance gates that span repositories.
+> Este es el **plan índice**. No le pertenece código. Cada repositorio listado en §5 lleva
+> su propio `docs/PLAN.md` con el diff concreto; este archivo es dueño de la arquitectura,
+> los contratos compartidos, el orden de construcción y los criterios de aceptación que
+> cruzan repositorios.
 >
-> Plans for repositories that **do not exist yet** live in [`docs/plans/`](plans/) until
-> the repository is created; the file is then moved to that repository's `docs/PLAN.md`
-> unchanged.
+> Los planes de los repositorios que **todavía no existen** viven en [`docs/plans/`](plans/)
+> hasta que el repositorio se cree; entonces el archivo se mueve a su `docs/PLAN.md` sin
+> modificaciones.
+>
+> **Nota de idioma:** la prosa va en español. Los bloques de código se mantienen con
+> comentarios en inglés porque son código literal destinado a los repositorios, cuyos
+> comentarios de fuente son en inglés.
 
-# Plan — Semantic search in the browser, on IndexedDB
+# Plan — Búsqueda semántica en el navegador, sobre IndexedDB
 
-## 1. Objective
+## 1. Objetivo
 
-Run semantic search **entirely in the browser**: embedding generation, vector storage
-and k-nearest-neighbour retrieval, with no server round-trip at query time and no
-JavaScript library dependency. Persistence is `webtyp.com/indexdb`, extended where its
-current API cannot express the problem.
+Ejecutar búsqueda semántica **enteramente en el navegador**: generación de embeddings,
+almacenamiento de vectores y recuperación por k-vecinos más cercanos, sin viaje al
+servidor en tiempo de consulta y sin dependencia de ninguna librería JavaScript. La
+persistencia es `webtyp.com/indexdb`, extendido donde su API actual no alcanza a expresar
+el problema.
 
-The agent's `MemoryStore` is rewritten once against `storage.Conn` so the same memory
-code runs on a SQL backend (server) and on IndexedDB (browser).
+El `MemoryStore` del agente se reescribe una sola vez contra `storage.Conn`, de modo que
+el mismo código de memoria corra sobre un backend SQL (servidor) y sobre IndexedDB
+(navegador).
 
-## 2. Why this replaces the SQLite study
+## 2. Por qué esto reemplaza al estudio de SQLite
 
-The previous design ([`docs/history/MEMORY_SQLITE.md`](history/MEMORY_SQLITE.md))
-assumed one storage engine everywhere: SQLite on the server, the same SQLite compiled
-to WASM in the browser, with `sqlite-vec` for vector search. Two premises failed:
+El diseño anterior ([`docs/history/MEMORY_SQLITE.md`](history/MEMORY_SQLITE.md)) asumía un
+único motor de almacenamiento en todas partes: SQLite en el servidor, el mismo SQLite
+compilado a WASM en el navegador, con `sqlite-vec` para la búsqueda vectorial. Dos
+premisas fallaron:
 
-- `modernc.org/sqlite` is pure Go but does **not** compile under TinyGo for
-  `GOOS=js GOARCH=wasm`. It is a backend-only dependency.
-- `sqlite-vec` is a C extension. Using it in the browser means shipping a second WASM
-  runtime plus a JavaScript VFS shim — the exact JS dependency the ecosystem exists to
-  avoid, and a second copy of every byte of storage.
+- `modernc.org/sqlite` es Go puro pero **no** compila bajo TinyGo para
+  `GOOS=js GOARCH=wasm`. Es una dependencia exclusiva de backend.
+- `sqlite-vec` es una extensión en C. Usarla en el navegador significa embarcar un segundo
+  runtime WASM más una capa VFS en JavaScript — exactamente la dependencia JS que este
+  ecosistema existe para evitar, y una segunda copia de cada byte almacenado.
 
-What survives from that study and is **reused verbatim**: the memory categorisation
-(short-term / episodic / semantic / action), the `session_id IS NULL` global-knowledge
-scoping rule, and Reciprocal Rank Fusion as the eventual hybrid-retrieval strategy.
+Lo que sobrevive de ese estudio y se **reutiliza tal cual**: la categorización de memoria
+(corto plazo / episódica / semántica / de acciones), la regla de alcance de conocimiento
+global por `session_id IS NULL`, y Reciprocal Rank Fusion como estrategia eventual de
+recuperación híbrida.
 
-What replaces it: the browser already ships a persistent, transactional, structured
-store — IndexedDB — and this ecosystem already owns a driver for it. The isomorphism
-moves up one level: instead of "the same engine everywhere", it becomes "the same
-`storage.Conn` contract everywhere", which is what `webtyp.com/storage` was built for.
+Lo que lo reemplaza: el navegador ya trae un almacén persistente, transaccional y
+estructurado — IndexedDB — y este ecosistema ya tiene un driver para él. El isomorfismo
+sube un nivel: en vez de "el mismo motor en todas partes", pasa a ser "el mismo contrato
+`storage.Conn` en todas partes", que es justamente para lo que se construyó
+`webtyp.com/storage`.
 
-## 3. Architecture
+## 3. Arquitectura
 
 ```
                           ┌──────────────────────────────┐
                           │  agent  (MemoryStore)        │
-                          │  rewritten on storage.Conn   │
+                          │  reescrito sobre storage.Conn│
                           └──────────────┬───────────────┘
                                          │
                           ┌──────────────▼───────────────┐
-                          │  vectordb                    │  documents, kNN,
-                          │  the store                   │  filters, LRU, quota
+                          │  vectordb                    │  documentos, kNN,
+                          │  el almacén                  │  filtros, LRU, cuota
                           └──┬──────────┬──────────┬─────┘
                              │          │          │
          ┌───────────────────▼──┐  ┌────▼─────┐  ┌─▼─────────────────┐
          │  vector              │  │  embed   │  │  storage          │
-         │  math, arena, top-k, │  │  port +  │  │  Conn contract    │
-         │  LE codec            │  │  adapter │  └──┬─────────────┬──┘
+         │  math, arena, top-k, │  │  puerto +│  │  contrato Conn    │
+         │  códec LE            │  │  adaptad.│  └──┬─────────────┬──┘
          └──────────────────────┘  └─┬──┬──┬──┘     │             │
                                      │  │  │        │             │
               ┌──────────────────────┘  │  └────────┼─────┐       │
               │              ┌──────────┘           │     │       │
     ┌─────────▼────────┐  ┌──▼──────────────┐  ┌────▼─────▼───┐ ┌─▼─────────────┐
     │  tokenizer       │  │  weights        │  │  indexdb     │ │ sqlt/postgres │
-    │  text → ids      │  │  artifact + IDB │  │  browser     │ │ server        │
-    └──────────────────┘  │  cache          │  └──────────────┘ └───────────────┘
+    │  texto → ids     │  │  artifact + IDB │  │  navegador   │ │ servidor      │
+    └──────────────────┘  │  caché          │  └──────────────┘ └───────────────┘
                           └──┬──────────────┘
                              │
-        ╔════════════════════▼══════════════════════════════════╗
-        ║  PHASE 5 — only if Phase 3 recall proves insufficient  ║
-        ║    webgpu  (navigator.gpu)  →  nn  (WGSL encoder)      ║
-        ║    → a second embed adapter, same Embedder interface   ║
-        ╚═══════════════════════════════════════════════════════╝
+        ╔════════════════════▼═══════════════════════════════════╗
+        ║  FASE 5 — solo si el recall de la fase 3 no alcanza     ║
+        ║    webgpu  (navigator.gpu)  →  nn  (encoder en WGSL)    ║
+        ║    → un segundo adaptador embed, misma interfaz         ║
+        ╚════════════════════════════════════════════════════════╝
 ```
 
-Every arrow is a compile-time dependency. There are no cycles and no repository
-depends on `agent`.
+Cada flecha es una dependencia de compilación. No hay ciclos y ningún repositorio depende
+de `agent`.
 
-## 4. Global design decisions
+## 4. Decisiones globales de diseño
 
-These are decided **here**, once. Repository plans reference this section rather than
-re-arguing it.
+Se deciden **acá**, una sola vez. Los planes por repositorio referencian esta sección en
+lugar de volver a argumentarla.
 
-### D1 — A vector is a `[]byte` on disk and a slice of a shared arena in memory
+### D1 — Un vector es `[]byte` en disco y una porción de una arena compartida en memoria
 
-On disk the canonical type is `model.Blob()` → `[]byte` → a JS `Uint8Array` under
-structured clone. In Go, vectors are **never** a `[]float32` per document: they live in
-one contiguous `[]float32` arena of `N × Dim`, where document *i* occupies
+En disco el tipo canónico es `model.Blob()` → `[]byte` → un `Uint8Array` de JS bajo
+structured clone. En Go, los vectores **nunca** son un `[]float32` por documento: viven en
+una única arena contigua `[]float32` de `N × Dim`, donde el documento *i* ocupa
 `arena[i*Dim : (i+1)*Dim]`.
 
-Rationale, in the order that matters:
+Justificación, en el orden que importa:
 
-1. **`js.ValueOf` cannot carry a vector, and failing costs the whole app.**
-   `execute.go:create` builds a `map[string]any` and hands it to `store.Call("add", …)`,
-   which routes through `js.ValueOf`. `js.ValueOf` accepts `[]any` but neither `[]byte`
-   nor `[]float32`, and panics on anything else. Under TinyGo `GOOS=js GOARCH=wasm`
-   there is **no `recover()`** (`getStore` already documents this), so that panic is an
-   unrecoverable crash, not an error value. Encoding a 384-dim vector as `[]any` to get
-   around it costs 384 boxed allocations and ~3 KB of JS heap per document against
-   1536 bytes of real data. Not viable.
+1. **`js.ValueOf` no puede transportar un vector, y fallar cuesta la aplicación entera.**
+   `execute.go:create` arma un `map[string]any` y se lo entrega a `store.Call("add", …)`,
+   que pasa por `js.ValueOf`. `js.ValueOf` acepta `[]any` pero **ni `[]byte` ni
+   `[]float32`**, y hace pánico con cualquier otra cosa. Bajo TinyGo
+   `GOOS=js GOARCH=wasm` **no hay `recover()`** (`getStore` ya lo documenta en ese mismo
+   repositorio), así que ese pánico es un crash irrecuperable, no un valor de error.
+   Codificar un vector de 384 dims como `[]any` para sortearlo cuesta 384 allocations
+   boxeadas y ~3 KB de heap JS por documento, contra 1536 bytes de datos reales. Inviable.
 
-2. **`js.CopyBytesToJS` / `js.CopyBytesToGo` are the only bulk-copy primitives, and
-   TinyGo implements both.** They are a `memcpy` between WASM linear memory and a
-   `Uint8Array`. The path `[]float32` → (O(1) reinterpretation) → `[]byte` → one memcpy
-   → `Uint8Array` has no intermediate representation: no JSON, no base64, no boxing.
+2. **`js.CopyBytesToJS` / `js.CopyBytesToGo` son las únicas primitivas de copia masiva, y
+   TinyGo implementa ambas.** Son un `memcpy` entre la memoria lineal WASM y un
+   `Uint8Array`. El camino `[]float32` → (reinterpretación O(1)) → `[]byte` → un memcpy →
+   `Uint8Array` no tiene representación intermedia: ni JSON, ni base64, ni boxing.
 
-3. **`FieldBlob` already exists** (`model/field.go:13`) and is already wired through
-   `IsZeroPtr`, `ValuesFrom` and the codecs. Introducing a new `FieldType` would force
-   an edit to every exhaustive `switch` in `model`, `storage/mem`, `sqlt`, `postgres`
-   and `indexdb` — a breaking change across six repositories to buy nothing.
+3. **`FieldBlob` ya existe** (`model/field.go:13`) y ya está cableado en `IsZeroPtr`,
+   `ValuesFrom` y los codecs. Introducir un `FieldType` nuevo obligaría a editar cada
+   `switch` exhaustivo en `model`, `storage/mem`, `sqlt`, `postgres` e `indexdb` — un
+   cambio incompatible en seis repositorios para no comprar nada.
 
-4. **`[]byte` is the only isomorphic representation.** It maps to `BLOB` (SQLite),
-   `BYTEA` (Postgres) and `Uint8Array` (IndexedDB). A `Float32Array` would be marginally
-   faster in the browser and has no SQL counterpart.
+4. **`[]byte` es la única representación isomórfica.** Mapea a `BLOB` (SQLite), `BYTEA`
+   (Postgres) y `Uint8Array` (IndexedDB). Un `Float32Array` sería marginalmente más rápido
+   en el navegador y no tiene contraparte SQL.
 
-5. **The arena is what actually makes queries fast.** Scoring reads only WASM linear
-   memory, so a query crosses the JS boundary **zero times**. It allocates nothing per
-   candidate. TinyGo's conservative GC sees one large object instead of N small slices —
-   this matters far more under TinyGo than under standard Go. And the dot product walks
-   contiguous memory, so cache locality is optimal.
+5. **La arena es lo que realmente hace rápidas las consultas.** El scoring lee solamente
+   memoria lineal WASM, así que una consulta cruza el puente JS **cero veces**. No asigna
+   nada por candidato. El GC conservador de TinyGo ve un objeto grande en vez de N slices
+   pequeños — esto pesa mucho más bajo TinyGo que bajo Go estándar. Y el producto punto
+   recorre memoria contigua, con localidad de caché óptima.
 
-6. **Vectors are stored L2-normalised**, making cosine similarity a plain dot product.
-   This removes one `sqrt` and one division per document per query. (The JS original
-   precomputes the magnitude but still divides N times per search.)
+6. **Los vectores se guardan normalizados L2**, lo que convierte la similitud coseno en un
+   producto punto simple. Esto elimina un `sqrt` y una división por documento por consulta.
+   (El original en JS precomputa la magnitud pero igual divide N veces por búsqueda.)
 
-**Cost, stated honestly:** resident memory is `N × Dim × 4` bytes. 10 000 documents at
-384 dims is 15 MB — acceptable. 100 000 documents is 150 MB, which is where int8
-quantisation (÷4) becomes mandatory. Quantisation is **Phase 5**, not v1.
+**Costo, dicho con honestidad:** la memoria residente es `N × Dim × 4` bytes. 10 000
+documentos a 384 dims son 15 MB — aceptable. 100 000 documentos son 150 MB, que es donde
+la cuantización int8 (÷4) se vuelve obligatoria. La cuantización es **fase 5**, no v1.
 
-### D2 — Vectors persist in shards, documents persist per row
+### D2 — Los vectores se persisten por shards; los documentos, por fila
 
-One row of `vec_shards` holds `ShardSize` (default 1024) vectors as a single blob.
-Cold start becomes `N/1024` structured-clone deserialisations instead of `N`, each one
-a single `CopyBytesToGo` straight into its offset in the arena.
+Una fila de `vec_shards` contiene `ShardSize` (1024 por defecto) vectores como un único
+blob. El arranque en frío pasa a `N/1024` deserializaciones de structured clone en vez de
+`N`, y cada una es un solo `CopyBytesToGo` directo a su offset en la arena.
 
-Text and metadata live in a **separate** object store, read only for the final top-k —
-never during scoring. In RAM, alongside the arena, sits a compact header array
-(`id`, `tags`, `created`, `hits`, `deleted`) used for pre-filtering.
+El texto y los metadatos viven en un object store **separado**, que se lee únicamente para
+el top-k final — nunca durante el scoring. En RAM, junto a la arena, vive un arreglo
+compacto de cabeceras (`id`, `tags`, `created`, `hits`, `deleted`) usado para el
+prefiltrado.
 
-A consequence worth noting: because the hot read path is "a handful of large rows from
-one table", `vectordb` needs **no streaming-scan API** from `storage`. That shrinks the
-`storage` change to blob conformance plus batch insert.
+Una consecuencia que vale señalar: como el camino caliente de lectura es "un puñado de
+filas grandes de una tabla", `vectordb` **no necesita ninguna API de scan en streaming**
+de parte de `storage`. Eso reduce el cambio en `storage` a conformance de blobs más
+inserción por lote.
 
-### D3 — IndexedDB cannot index a vector. Every kNN query is a full scan.
+### D3 — IndexedDB no puede indexar un vector. Toda consulta kNN es un barrido completo.
 
-No B-tree over a 384-dimensional space helps. This is not a limitation to engineer
-around in v1; it is the shape of the problem. The design therefore minimises **cost per
-candidate** (D1, D2) rather than trying to avoid candidates. Approximate indexes
-(HNSW/IVF) are explicitly out of scope until a corpus exists that needs them.
+Ningún árbol B sobre un espacio de 384 dimensiones ayuda. Esto no es una limitación a
+sortear en v1; es la forma del problema. Por eso el diseño minimiza el **costo por
+candidato** (D1, D2) en vez de intentar evitar candidatos. Los índices aproximados
+(HNSW/IVF) quedan explícitamente fuera de alcance hasta que exista un corpus que los
+necesite.
 
-### D4 — Embeddings are produced in the browser, in two phases behind one port
+### D4 — Los embeddings se producen en el navegador, en dos fases detrás de un mismo puerto
 
-`embed.Embedder` is the single contract. Two implementations ship behind it:
+`embed.Embedder` es el contrato único. Se embarcan dos implementaciones detrás de él:
 
-- **Phase 3 — static embeddings.** A distilled token-embedding table (model2vec /
-  "potion" family): tokenise, look up, mean-pool, normalise. No attention, no forward
-  pass, no GPU. Pure Go, TinyGo-compatible today, ~30 MB quantised. Retrieval quality is
-  below a full encoder but sound, and it delivers a working end-to-end pipeline before
-  any GPU code exists.
-- **Phase 4 — transformer encoder on WebGPU.** Full sentence-transformer inference via
-  `navigator.gpu`, owned end to end in Go + WGSL.
+- **Fase 3 — embeddings estáticos.** Una tabla de embeddings de tokens destilada (familia
+  model2vec / "potion"): tokenizar, buscar, promediar (mean-pool), normalizar. Sin
+  atención, sin forward pass, sin GPU. Go puro, compatible con TinyGo hoy, ~30 MB
+  cuantizado. La calidad de recuperación queda por debajo de un encoder completo pero es
+  sólida, y entrega un pipeline funcionando de punta a punta antes de que exista una sola
+  línea de código de GPU.
+- **Fase 5 — encoder transformer sobre WebGPU.** Inferencia completa de
+  sentence-transformer vía `navigator.gpu`, en Go + WGSL de principio a fin.
 
-Both run entirely in the browser. Phase 4 is a **new adapter**, not a rewrite:
-`vectordb`, `indexdb`, `storage` and `model` are untouched by it.
+Ambos corren enteramente en el navegador. La fase 5 es un **adaptador nuevo**, no una
+reescritura: `vectordb`, `indexdb`, `storage` y `model` quedan intactos.
 
-### D5 — Spanish is a selection constraint, and it dominates model size
+### D5 — El español es una restricción de selección, y domina el tamaño del modelo
 
-`docs/EFFICIENT_SLM.md` makes Spanish a first-class requirement, which rules out
-English-only encoders (`all-MiniLM-L6-v2` and friends). Multilingual models carry a
-~250 k-token vocabulary, and the embedding table alone is
-`250 000 × 384 × 4 ≈ 384 MB` in fp32 — far larger than the transformer body.
+`docs/EFFICIENT_SLM.md` pone el español como requisito de primer orden, lo que descarta
+los encoders solo-inglés (`all-MiniLM-L6-v2` y familia). Los modelos multilingües cargan
+un vocabulario de ~250 k tokens, y la tabla de embeddings sola pesa
+`250 000 × 384 × 4 ≈ 384 MB` en fp32 — muchísimo más que el cuerpo del transformer.
 
-Therefore: **the embedding table ships int8-quantised with per-row scales** (~96 MB, and
-~30 MB for a 256-dim static model), and the model artifact is cached in IndexedDB after
-first download so it is fetched once per browser, not once per session. Candidate
-models and the final choice are recorded in [`docs/plans/embed.md`](plans/embed.md).
+Por lo tanto: **la tabla de embeddings se embarca cuantizada a int8 con escalas por fila**
+(~96 MB, y ~30 MB para un modelo estático de 256 dims), y el artifact del modelo se
+cachea en IndexedDB después de la primera descarga, de modo que se baja una vez por
+navegador y no una vez por sesión. Los modelos candidatos y la elección final se registran
+en [`docs/plans/embed.md`](plans/embed.md).
 
-### D6 — Licensing
+### D6 — Licencias
 
-`webtyp/vector-storage` is a fork of `nitaiaharoni1/vector-storage` (MIT). Any Go
-repository that ports its logic — `vectordb` above all — must carry a `NOTICE` file
-crediting the original author and reproducing the MIT terms. This is not optional.
+`webtyp/vector-storage` es un fork de `nitaiaharoni1/vector-storage` (MIT). Todo
+repositorio Go que porte su lógica — `vectordb` por sobre todo — debe llevar un archivo
+`NOTICE` acreditando al autor original y reproduciendo los términos MIT. No es opcional.
 
-## 5. Repository map
+## 5. Mapa de repositorios
 
-| Repository | State | Single responsibility | Phase | Plan |
+| Repositorio | Estado | Responsabilidad única | Fase | Plan |
 |---|---|---|---|---|
-| `webtyp/model` | modify | `Vector(dim)` kind over `FieldBlob` | 1 | [`model/docs/PLAN.md`](https://github.com/webtyp/model/blob/main/docs/PLAN.md) |
-| `webtyp/storage` | modify | blob conformance + batch insert contract | 1 | [`storage/docs/PLAN.md`](https://github.com/webtyp/storage/blob/main/docs/PLAN.md) |
-| `webtyp/indexdb` | modify | blob I/O, one transaction per batch | 1 | [`indexdb/docs/PLAN.md`](https://github.com/webtyp/indexdb/blob/main/docs/PLAN.md) |
-| `webtyp/vector` | **new** | vector math, arena, top-k, LE codec | 2 | [`docs/plans/vector.md`](plans/vector.md) |
-| `webtyp/vectordb` | **new** | document store + kNN + filters + LRU | 2 | [`docs/plans/vectordb.md`](plans/vectordb.md) |
-| `webtyp/tokenizer` | **new** | text → token ids | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
-| `webtyp/weights` | **new** | model artifact format + browser cache | 3 | [`docs/plans/weights.md`](plans/weights.md) |
-| `webtyp/embed` | **new** | `Embedder` port + static adapter | 3 | [`docs/plans/embed.md`](plans/embed.md) |
-| `webtyp/agent` | modify | `MemoryStore` on `storage.Conn` | 4 | this repo, §7 |
-| `webtyp/webgpu` | **new** | `navigator.gpu` bindings | 5 | [`docs/plans/webgpu.md`](plans/webgpu.md) |
-| `webtyp/nn` | **new** | WGSL kernels + encoder graph | 5 | [`docs/plans/nn.md`](plans/nn.md) |
-| `webtyp/vector-storage` | freeze | historical JS reference + port map | 1 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
+| `webtyp/model` | modificar | kind `Vector(dim)` sobre `FieldBlob` | 1 | [`model/docs/PLAN.md`](https://github.com/webtyp/model/blob/main/docs/PLAN.md) |
+| `webtyp/storage` | modificar | conformance de blob + contrato de inserción por lote | 1 | [`storage/docs/PLAN.md`](https://github.com/webtyp/storage/blob/main/docs/PLAN.md) |
+| `webtyp/indexdb` | modificar | E/S de blobs, una transacción por lote | 1 | [`indexdb/docs/PLAN.md`](https://github.com/webtyp/indexdb/blob/main/docs/PLAN.md) |
+| `webtyp/vector` | **nuevo** | math vectorial, arena, top-k, códec LE | 2 | [`docs/plans/vector.md`](plans/vector.md) |
+| `webtyp/vectordb` | **nuevo** | almacén de documentos + kNN + filtros + LRU | 2 | [`docs/plans/vectordb.md`](plans/vectordb.md) |
+| `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
+| `webtyp/weights` | **nuevo** | formato de artifact + caché en navegador | 3 | [`docs/plans/weights.md`](plans/weights.md) |
+| `webtyp/embed` | **nuevo** | puerto `Embedder` + adaptador estático | 3 | [`docs/plans/embed.md`](plans/embed.md) |
+| `webtyp/agent` | modificar | `MemoryStore` sobre `storage.Conn` | 4 | este repositorio, §7 |
+| `webtyp/webgpu` | **nuevo** | bindings de `navigator.gpu` | 5 | [`docs/plans/webgpu.md`](plans/webgpu.md) |
+| `webtyp/nn` | **nuevo** | kernels WGSL + grafo del encoder | 5 | [`docs/plans/nn.md`](plans/nn.md) |
+| `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 1 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
 
-## 6. Build order and phase gates
+## 6. Orden de construcción y puertas de fase
 
-Phases are strictly ordered: a phase does not start until the previous one's gate passes.
-Within a phase, repositories in the same row can proceed in parallel.
+Las fases son estrictamente ordenadas: una fase no arranca hasta que la puerta de la
+anterior pase. Dentro de una fase, los repositorios de una misma línea pueden avanzar en
+paralelo.
 
-### Phase 1 — Unblock persistence (no ML)
-`model` → `storage` → `indexdb`, in that order (each depends on the previous release).
+### Fase 1 — Desbloquear la persistencia (sin ML)
+`model` → `storage` → `indexdb`, en ese orden (cada uno depende del release del anterior).
 
-**Gate:** a `[]byte` of 1536 bytes round-trips through IndexedDB in a real browser with
-byte-for-byte equality, and inserting 1024 rows uses **one** transaction. Proven by
-`indexdb/tests/` under `gotest -tinygo` and by the `storage` conformance suite passing
-on `mem`, `sqlt` and `indexdb`.
+**Puerta:** un `[]byte` de 1536 bytes hace round-trip por IndexedDB en un navegador real
+con igualdad byte a byte, e insertar 1024 filas usa **una** transacción. Demostrado por
+`indexdb/tests/` bajo `gotest -tinygo` y por la suite de conformance de `storage` pasando
+en `mem`, `sqlt` e `indexdb`.
 
-### Phase 2 — Math and store (no ML)
+### Fase 2 — Math y almacén (sin ML)
 `vector` → `vectordb`.
 
-**Gate:** kNN over 10 000 synthetic vectors returns the correct top-k (verified against
-a naive reference implementation) with **zero allocations per query**, measured by
-`testing.AllocsPerRun`. The same test passes against `storage/mem` in standard Go and
-against `indexdb` in the browser.
+**Puerta:** kNN sobre 10 000 vectores sintéticos devuelve el top-k correcto (verificado
+contra una implementación de referencia ingenua) con **cero allocations por consulta**,
+medido con `testing.AllocsPerRun`. El mismo test pasa contra `storage/mem` en Go estándar
+y contra `indexdb` en el navegador.
 
-### Phase 3 — Embeddings in the browser
-`tokenizer` and `weights` in parallel, then `embed`.
+### Fase 3 — Embeddings en el navegador
+`tokenizer` y `weights` en paralelo, luego `embed`.
 
-**Gate:** a real corpus in Spanish is indexed and searched end to end in the browser,
-offline after first load, with a documented recall@10 against a reference.
+**Puerta:** un corpus real en español se indexa y se busca de punta a punta en el
+navegador, offline después de la primera carga, con un recall@10 documentado contra una
+referencia.
 
-### Phase 4 — Agent memory
-`agent`: `MemoryStore` rewritten on `storage.Conn`, `SearchKnowledge` gains its semantic
-path.
+### Fase 4 — Memoria del agente
+`agent`: `MemoryStore` reescrito sobre `storage.Conn`, `SearchKnowledge` gana su camino
+semántico.
 
-**Gate:** the full DDT matrix in `DEFAULT_LLM_SKILL.md` §2 passes against both a SQL
-backend and `indexdb`, from one implementation.
+**Puerta:** la matriz DDT completa de `DEFAULT_LLM_SKILL.md` §2 pasa contra un backend SQL
+y contra `indexdb`, desde una sola implementación.
 
-### Phase 5 — WebGPU encoder and optimisation
-`webgpu` → `nn` → a second `embed` adapter. Then int8 quantisation in `vector`, then
-lexical BM25 + RRF fusion.
+### Fase 5 — Encoder WebGPU y optimización
+`webgpu` → `nn` → un segundo adaptador de `embed`. Después cuantización int8 en `vector`,
+después BM25 léxico + fusión RRF.
 
-**Entry condition, not just a dependency:** Phase 5 starts only if `embed`'s evaluation
-harness shows Phase 3's static embedder is not good enough on the Spanish test set. If
-recall@10 is adequate, not building `nn` is the correct outcome. See
-[`docs/plans/nn.md`](plans/nn.md).
+**Condición de entrada, no solo dependencia:** la fase 5 arranca únicamente si el harness
+de evaluación de `embed` demuestra que el embedder estático de la fase 3 no alcanza en el
+conjunto de prueba en español. Si el recall@10 es adecuado, **no** construir `nn` es el
+resultado correcto. Ver [`docs/plans/nn.md`](plans/nn.md).
 
-**Gate:** the Phase 4 encoder produces vectors matching the reference implementation
-within a documented tolerance, and `vectordb` is unchanged by its arrival.
+**Puerta:** el encoder produce vectores que coinciden con la implementación de referencia
+dentro de una tolerancia documentada, y `vectordb` no cambia en nada por su llegada.
 
-## 7. Changes owned by this repository (`agent`)
+## 7. Cambios que le pertenecen a este repositorio (`agent`)
 
-Scope, to be detailed once Phase 2 releases:
+Alcance, a detallar cuando la fase 2 libere:
 
-1. **`memory.go` → `memory_storage.go`.** Drop `modernc.org/sqlite`. One `MemoryStore`
-   implementation written against `storage.Conn`, so the backend becomes an injected
-   dependency — which is what `DEFAULT_LLM_SKILL.md` §1 already demands and what the
-   current direct-SQL implementation violates.
-2. **Schema as `model.Definition` values**, not SQL DDL strings, so `indexdb` can create
-   the object stores from the same declaration a SQL backend turns into DDL.
-3. **`SearchKnowledge` gains a semantic path** through `vectordb`, with an injected
-   `embed.Embedder`. Lexical FTS5 is not available outside SQLite: on `indexdb`, the
-   lexical half of RRF waits for Phase 5's BM25 index. Until then `SearchKnowledge` is
-   `LIKE`-based lexically and vector-based semantically.
-4. **`LLMConfig` gains an optional `Embedder`**, as anticipated by the historical study.
-5. **Module path migration** `github.com/tinywasm/agent` → `webtyp.com/agent`. Every
-   other repository in this plan already migrated; `agent` cannot depend on
-   `webtyp.com/storage` while advertising the old path without confusing `gopush`'s
-   dependent-module updates. This is a prerequisite for Phase 4, not part of it.
-6. Update `DEFAULT_LLM_SKILL.md`'s dependency allow-list: `modernc.org/sqlite` leaves
-   production code; `webtyp.com/storage`, `webtyp.com/vectordb` and `webtyp.com/embed`
-   enter it.
+1. **`memory.go` → `memory_storage.go`.** Se saca `modernc.org/sqlite`. Una sola
+   implementación de `MemoryStore` escrita contra `storage.Conn`, de modo que el backend
+   pasa a ser una dependencia inyectada — que es lo que `DEFAULT_LLM_SKILL.md` §1 ya exige
+   y lo que la implementación actual con SQL directo viola.
+2. **El esquema como valores `model.Definition`**, no como cadenas de DDL, para que
+   `indexdb` pueda crear los object stores desde la misma declaración que un backend SQL
+   convierte en DDL.
+3. **`SearchKnowledge` gana un camino semántico** a través de `vectordb`, con un
+   `embed.Embedder` inyectado. FTS5 léxico no existe fuera de SQLite: sobre `indexdb`, la
+   mitad léxica de RRF espera al índice BM25 de la fase 5. Hasta entonces `SearchKnowledge`
+   es léxico por `LIKE` y semántico por vectores.
+4. **`LLMConfig` gana un `Embedder` opcional**, como ya anticipaba el estudio histórico.
+5. **Migración de module path** `github.com/tinywasm/agent` → `webtyp.com/agent`. Todos los
+   demás repositorios de este plan ya migraron; `agent` no puede depender de
+   `webtyp.com/storage` mientras publica el path viejo sin confundir la actualización de
+   módulos dependientes de `gopush`. Es un prerrequisito de la fase 4, no parte de ella.
+6. Actualizar la lista de dependencias permitidas de `DEFAULT_LLM_SKILL.md`:
+   `modernc.org/sqlite` sale del código de producción; entran `webtyp.com/storage`,
+   `webtyp.com/vectordb` y `webtyp.com/embed`.
 
-## 8. Risks
+## 8. Riesgos
 
-| Risk | Impact | Mitigation |
+| Riesgo | Impacto | Mitigación |
 |---|---|---|
-| Phase 5 (WebGPU encoder) is a large, open-ended project | Delivery slips indefinitely | Phase 3's static embedder makes the product work without it; Phase 5 is an adapter swap behind `embed.Embedder` |
-| Multilingual model artifact is 100 MB+ | Unusable first load | int8 embedding table, IndexedDB cache after first fetch, and a documented smaller fallback |
-| IndexedDB quota eviction wipes the index | Silent data loss | `navigator.storage.persist()` on init, `estimate()` before writes, LRU eviction before the browser's |
-| `jsvalue.ScanValue` may not handle `Uint8Array` | Phase 1 blocked | **Verify first** — it is the opening task of the `indexdb` plan |
-| Arena outgrows browser memory past ~100 k docs | OOM | Documented ceiling, int8 quantisation in Phase 5 |
-| Vectors and text drift out of sync on partial write | Corrupt results | Single transaction spanning both stores; a `dim`/`model_id` header row rejects a mismatched arena at load |
+| La fase 5 (encoder WebGPU) es un proyecto grande y abierto | La entrega se corre indefinidamente | El embedder estático de la fase 3 hace que el producto funcione sin ella; la fase 5 es un cambio de adaptador detrás de `embed.Embedder` |
+| El artifact multilingüe pesa 100 MB+ | Primera carga inusable | Tabla de embeddings int8, caché en IndexedDB tras el primer fetch, y un fallback más chico documentado |
+| La cuota de IndexedDB desaloja el índice | Pérdida silenciosa de datos | `navigator.storage.persist()` al iniciar, `estimate()` antes de escribir, desalojo LRU propio antes que el del navegador |
+| `jsvalue.ScanValue` podría no manejar `Uint8Array` | Fase 1 bloqueada | **Verificar primero** — es la tarea de apertura del plan de `indexdb` |
+| La arena excede la memoria del navegador pasados ~100 k docs | OOM | Techo documentado, cuantización int8 en la fase 5 |
+| Vectores y texto se desincronizan en una escritura parcial | Resultados corruptos | Una sola transacción abarcando ambos stores; una fila de cabecera `dim`/`model_id` rechaza una arena que no corresponde al cargar |
 
-## 9. Open decisions
+## 9. Decisiones abiertas
 
-- **O1.** Exact embedding model and dimension for Phase 3 (see `plans/embed.md` §2).
-  Constrained by D5. Default assumption until decided: 256 dims, multilingual static.
-- **O2.** Does `webtyp/binary` already provide a little-endian float32 codec? If so,
-  `vector` depends on it instead of defining its own. **Verify before writing `vector`.**
-- **O3.** Metadata filtering shape. v1 assumption: opaque `model.RawJSON` for payload
-  plus a delimited, `LIKE`-filterable tag column, because `model` has no string-slice
-  field type. Revisit if filtering becomes a hot path.
-- **O4.** Whether `vectordb` should expose an optional `VectorSearcher` capability so
-  `postgres` can delegate to pgvector server-side. Deferred: it changes no browser code.
+- **O1.** Modelo y dimensión exactos de embeddings para la fase 3 (ver `plans/embed.md`
+  §2). Restringido por D5. Supuesto de trabajo hasta decidir: 256 dims, estático
+  multilingüe.
+- **O2.** ¿`webtyp/binary` ya provee un códec little-endian de float32? Si lo hace,
+  `vector` depende de él en vez de definir el suyo. **Verificar antes de escribir
+  `vector`.**
+- **O3.** Forma del filtrado por metadatos. Supuesto v1: `model.RawJSON` opaco para el
+  payload más una columna de tags delimitada y filtrable con `LIKE`, porque `model` no
+  tiene un tipo de campo de slice de strings. Revisar si el filtrado se vuelve camino
+  caliente.
+- **O4.** Si `vectordb` debería exponer una capacidad opcional `VectorSearcher` para que
+  `postgres` delegue en pgvector del lado del servidor. Diferido: no cambia nada del código
+  del navegador.

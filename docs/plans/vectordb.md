@@ -1,47 +1,48 @@
 ---
-PLAN: "feat: webtyp/vectordb — document store with kNN retrieval"
+PLAN: "feat: webtyp/vectordb — almacén de documentos con recuperación kNN"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-REPO: webtyp/vectordb (to be created)
+REPO: webtyp/vectordb (por crear)
 ---
 
-> New repository. This file lives in `agent/docs/plans/` until `webtyp/vectordb` exists,
-> then moves to `vectordb/docs/PLAN.md` unchanged.
-> Master index: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> Repositorio nuevo. Este archivo vive en `agent/docs/plans/` hasta que `webtyp/vectordb`
+> exista; entonces se mueve a `vectordb/docs/PLAN.md` sin modificaciones.
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
 
 # Plan — `webtyp/vectordb`
 
-## Single responsibility
+## Responsabilidad única
 
-The store: documents in, ranked documents out. It owns the schema, the shard layout, the
-in-memory index, eviction policy and quota. It owns **no** arithmetic (that is
-`webtyp/vector`), **no** embedding generation (that is `webtyp/embed`) and **no**
-knowledge of IndexedDB (that is `webtyp/indexdb`, reached through `storage.Conn`).
+El almacén: entran documentos, salen documentos rankeados. Es dueño del esquema, del
+layout de shards, del índice en memoria, de la política de desalojo y de la cuota. **No**
+es dueño de ninguna aritmética (eso es `webtyp/vector`), **ni** de la generación de
+embeddings (eso es `webtyp/embed`), **ni** de ningún conocimiento sobre IndexedDB (eso es
+`webtyp/indexdb`, alcanzado a través de `storage.Conn`).
 
-This is the Go port of `webtyp/vector-storage`. The port map, and the list of behaviours
-deliberately not ported, is in that repository's `docs/PLAN.md` — read it before writing
-code here.
+Este es el port a Go de `webtyp/vector-storage`. El mapa de port, y la lista de
+comportamientos deliberadamente no portados, está en el `docs/PLAN.md` de aquel
+repositorio — leelo antes de escribir código acá.
 
-## Licence obligation
+## Obligación de licencia
 
-The TypeScript original is MIT by Nitai Aharoni. This repository **must** ship a `NOTICE`
-file crediting the author and reproducing the MIT terms alongside its own licence.
-Master index **D6**. Not optional.
+El original en TypeScript es MIT de Nitai Aharoni. Este repositorio **debe** embarcar un
+archivo `NOTICE` acreditando al autor y reproduciendo los términos MIT junto a su propia
+licencia. Índice maestro **D6**. No es opcional.
 
-## Dependencies
+## Dependencias
 
-`webtyp.com/vector`, `webtyp.com/storage`, `webtyp.com/model`, `webtyp.com/embed`
-(the port interface only), `webtyp.com/fmt`, `webtyp.com/context`.
+`webtyp.com/vector`, `webtyp.com/storage`, `webtyp.com/model`, `webtyp.com/embed` (solo la
+interfaz del puerto), `webtyp.com/fmt`, `webtyp.com/context`.
 
-It does **not** import `webtyp.com/indexdb`. The backend arrives as an injected
-`storage.Conn`, which is what makes the same store run in a browser and on a server, and
-what makes it testable against `storage/mem` in plain Go.
+**No** importa `webtyp.com/indexdb`. El backend llega como un `storage.Conn` inyectado, que
+es lo que hace que el mismo almacén corra en un navegador y en un servidor, y lo que lo
+hace testeable contra `storage/mem` en Go plano.
 
-## Schema
+## Esquema
 
-Three object stores / tables, declared as `model.Definition` values so every backend
-creates them the same way.
+Tres object stores / tablas, declaradas como valores `model.Definition` para que todo
+backend las cree igual.
 
 ```go
 // vec_docs — one row per document. Text and metadata are read ONLY for the final
@@ -84,18 +85,19 @@ var IndexModel = model.Definition{
 }
 ```
 
-`vec_shards.data` is `model.Blob()`, not `model.Vector(dim)`: a shard holds
-`count × dim` floats, not one vector, so a fixed dimension would be wrong. Dimension
-agreement is enforced by `vec_index.dim` against `len(data)/4/count`.
+`vec_shards.data` es `model.Blob()`, no `model.Vector(dim)`: un shard contiene
+`count × dim` floats, no un vector, así que una dimensión fija sería incorrecta. La
+concordancia de dimensión la impone `vec_index.dim` contra `len(data)/4/count`.
 
-`model_id` matters more than it looks: vectors from two different embedding models are
-not comparable, and mixing them produces plausible-looking nonsense rather than an error.
-Loading a corpus whose `model_id` differs from the configured embedder must **fail**, with
-a message saying the corpus needs re-indexing.
+`model_id` importa más de lo que parece: vectores de dos modelos de embeddings distintos
+no son comparables, y mezclarlos produce resultados plausibles en vez de un error. Cargar
+un corpus cuyo `model_id` difiere del embedder configurado tiene que **fallar**, con un
+mensaje que diga que el corpus necesita reindexarse.
 
-The `tags` encoding (`|a|b|c|`) is a v1 compromise — `model` has no string-slice field
-type. It is `LIKE '%|tag|%'`-filterable, which is enough for the header-array filter below
-since filtering happens in RAM anyway. Master index **O3**.
+La codificación de `tags` (`|a|b|c|`) es un compromiso de v1 — `model` no tiene un tipo de
+campo de slice de strings. Es filtrable con `LIKE '%|tag|%'`, que alcanza para el filtro
+sobre el arreglo de cabeceras de más abajo, ya que el filtrado ocurre en RAM de todos
+modos. Índice maestro **O3**.
 
 ## API
 
@@ -142,10 +144,10 @@ type Match struct {
 }
 ```
 
-Note what is absent: `Search` does not echo the query embedding back to the caller the
-way `similaritySearch` does. Nobody used it, and returning it forces a copy.
+Notá lo que está ausente: `Search` no devuelve el embedding de la consulta como hace
+`similaritySearch`. Nadie lo usaba, y devolverlo obliga a una copia.
 
-## In-memory index
+## Índice en memoria
 
 ```go
 type header struct {
@@ -157,95 +159,97 @@ type header struct {
 }
 ```
 
-`Store` holds `*vector.Arena` plus `[]header`, parallel by slot. That is the entire
-search index. Text and metadata stay on disk.
+`Store` mantiene una `*vector.Arena` más un `[]header`, paralelos por posición. Ese es todo
+el índice de búsqueda. El texto y los metadatos quedan en disco.
 
-Resident cost is `N × Dim × 4` plus roughly 64 bytes of header per document: 10 000
-documents at 384 dims is about 15.6 MB. Past ~100 000 documents this needs int8
-quantisation, which is Phase 5 — until then `MaxDocs` is the guard rail and exceeding it
-evicts.
+El costo residente es `N × Dim × 4` más unos 64 bytes de cabecera por documento: 10 000
+documentos a 384 dims son unos 15,6 MB. Pasados los ~100 000 documentos esto requiere
+cuantización int8, que es fase 5 — hasta entonces `MaxDocs` es la baranda y excederlo
+desaloja.
 
-## Write path
+## Camino de escritura
 
-1. Hash each document's text; drop any whose hash is already in the corpus. The
-   TypeScript original compares text strings across the whole array per insert — O(N·M)
-   for a batch.
-2. `Embedder.Embed` for the whole batch, into a scratch `[]float32`.
-3. Append to the arena (normalising on the way in).
-4. Assign shard and slot; mark the touched shards dirty.
-5. **One transaction** (`storage.TxExecutor`, see the `indexdb` plan §3) writing the
-   document rows and the dirty shard blobs together. Vectors and text must never be
-   observable out of sync.
-6. Evict if over budget, before committing.
+1. Hashear el texto de cada documento; descartar los cuyo hash ya esté en el corpus. El
+   original en TypeScript compara cadenas de texto contra todo el arreglo por inserción —
+   O(N·M) para un lote.
+2. `Embedder.Embed` para el lote completo, hacia un `[]float32` de trabajo.
+3. Agregar a la arena (normalizando en el camino).
+4. Asignar shard y posición; marcar los shards tocados como sucios.
+5. **Una transacción** (`storage.TxExecutor`, ver §3 del plan de `indexdb`) escribiendo las
+   filas de documentos y los blobs de shards sucios juntos. Vectores y texto nunca deben
+   ser observables fuera de sincronía.
+6. Desalojar si se pasa del presupuesto, antes de confirmar.
 
-Only dirty shards are rewritten. The original rewrites the entire corpus on every write,
-including after a read — `similaritySearch` calls `saveToIndexDbStorage()` to persist hit
-counters.
+Solo se reescriben los shards sucios. El original reescribe el corpus entero en cada
+escritura, incluso después de una lectura — `similaritySearch` llama a
+`saveToIndexDbStorage()` para persistir los contadores de hits.
 
-## Read path
+## Camino de lectura
 
-1. Embed the query (or take `Query.Vector`), normalise.
-2. Build the `keep` closure over the header array: skip deleted, apply tag filters.
-   Filtering happens **before** scoring, so a filtered query is cheaper, not dearer.
-3. `arena.Search(query, keep, topk)` — zero allocations, no JS boundary crossing.
-4. Load only the k winning rows from `vec_docs` by primary key.
-5. Increment `hits` in the header array **in memory**; flush lazily (on `Close`, on the
-   next write, or every N searches). A read must not trigger a full corpus rewrite.
+1. Embeber la consulta (o tomar `Query.Vector`), normalizar.
+2. Construir el closure `keep` sobre el arreglo de cabeceras: saltear borrados, aplicar
+   filtros de tags. El filtrado ocurre **antes** del scoring, así que una consulta filtrada
+   es más barata, no más cara.
+3. `arena.Search(query, keep, topk)` — cero allocations, sin cruzar el puente JS.
+4. Cargar solo las k filas ganadoras de `vec_docs` por clave primaria.
+5. Incrementar `hits` en el arreglo de cabeceras **en memoria**; volcar de forma diferida
+   (en `Close`, en la próxima escritura, o cada N búsquedas). Una lectura no debe disparar
+   una reescritura del corpus completo.
 
-## Eviction and quota
+## Desalojo y cuota
 
-Ordering is the original's and is kept: `hits` ascending, then `created` ascending —
-least used, oldest first.
+El orden es el del original y se mantiene: `hits` ascendente, luego `created` ascendente —
+menos usado, más viejo primero.
 
-The size measurement is not the original's. `getObjectSizeInMB` serialises the entire
-corpus with `JSON.stringify` just to measure it, and measures the wrong thing. Here:
-- Arena bytes are known arithmetically: `N × Dim × 4`.
-- Row overhead is estimated per document and calibrated once.
-- `navigator.storage.estimate()` gives the real browser budget, behind a build-tagged
-  file so the package still builds for a server target.
-- `navigator.storage.persist()` is requested at `New` — without it the browser may
-  evict the whole database under pressure, silently.
+La medición de tamaño no es la del original. `getObjectSizeInMB` serializa el corpus entero
+con `JSON.stringify` solo para medirlo, y mide lo que no es. Acá:
+- Los bytes de la arena se conocen aritméticamente: `N × Dim × 4`.
+- La sobrecarga por fila se estima por documento y se calibra una vez.
+- `navigator.storage.estimate()` da el presupuesto real del navegador, detrás de un archivo
+  con build tag para que el paquete siga compilando para un target de servidor.
+- `navigator.storage.persist()` se solicita en `New` — sin eso el navegador puede desalojar
+  la base de datos entera bajo presión, en silencio.
 
-Eviction is a soft delete in the header (`deleted = true`) plus a shard compaction when a
-shard drops below half full. Compaction renumbers slots, so it takes the same transaction
-as any other write.
+El desalojo es un borrado lógico en la cabecera (`deleted = true`) más una compactación del
+shard cuando cae por debajo de la mitad. La compactación renumera posiciones, así que va en
+la misma transacción que cualquier otra escritura.
 
 ## Tests
 
-The suite runs **twice**: against `storage/mem` in standard Go, and against
-`webtyp.com/indexdb` in a browser under `gotest -tinygo`. Same test bodies, different
-factory — the pattern `indexdb/tests/conformance_test.go` already uses.
+La suite corre **dos veces**: contra `storage/mem` en Go estándar, y contra
+`webtyp.com/indexdb` en un navegador bajo `gotest -tinygo`. Mismos cuerpos de test, distinta
+factory — el patrón que `indexdb/tests/conformance_test.go` ya usa.
 
-A `MockEmbedder` returning deterministic vectors from a text hash is mandatory: the store's
-tests must not depend on a real model. (`DEFAULT_LLM_SKILL.md` §2 — every external
-interface gets a mock.)
+Un `MockEmbedder` que devuelva vectores determinísticos a partir de un hash del texto es
+obligatorio: los tests del almacén no deben depender de un modelo real.
+(`DEFAULT_LLM_SKILL.md` §2 — toda interfaz externa lleva un mock.)
 
-| Test | Asserts |
+| Test | Verifica |
 |---|---|
-| `TestAdd_ThenSearchFindsIt` | the obvious round trip |
-| `TestAdd_DeduplicatesByHash` | the same text twice yields one document |
-| `TestAdd_BatchOneTransaction` | 1024 documents use one transaction, asserted through the mock recorder |
-| `TestSearch_RanksByCosine` | known vectors, hand-computed expected order |
-| `TestSearch_RespectsK` | including k > corpus size |
-| `TestSearch_IncludeExcludeTags` | filters apply before scoring |
-| `TestSearch_MinScore` | below-threshold matches are dropped |
-| `TestSearch_EmptyCorpus` | returns empty, not an error, and does not panic |
-| `TestSearch_DoesNotRewriteCorpus` | a search issues zero writes to the shard table — the regression test for the original's read-path write |
-| `TestReopen_LoadsIndex` | close, reopen on the same `Conn`, search still works |
-| `TestReopen_ModelMismatchFails` | a corpus written by model A rejected when configured with model B, with "re-index" in the message |
-| `TestReopen_DimMismatchFails` | `vec_index.dim` disagreeing with the shard blob length is an error |
-| `TestDelete_RemovesFromResults` | and survives a reopen |
-| `TestEvict_LeastUsedOldestFirst` | the ordering contract |
-| `TestEvict_CompactsShards` | a half-empty shard is compacted, slots renumbered, search still correct |
-| `TestNew_ReturnsBeforeUse` | a search immediately after `New` sees the full corpus — the regression test for the original's un-awaited load |
+| `TestAdd_ThenSearchFindsIt` | el round-trip obvio |
+| `TestAdd_DeduplicatesByHash` | el mismo texto dos veces da un documento |
+| `TestAdd_BatchOneTransaction` | 1024 documentos usan una transacción, verificado con el recorder del mock |
+| `TestSearch_RanksByCosine` | vectores conocidos, orden esperado calculado a mano |
+| `TestSearch_RespectsK` | incluyendo k > tamaño del corpus |
+| `TestSearch_IncludeExcludeTags` | los filtros se aplican antes del scoring |
+| `TestSearch_MinScore` | los matches bajo el umbral se descartan |
+| `TestSearch_EmptyCorpus` | devuelve vacío, no error, y no hace pánico |
+| `TestSearch_DoesNotRewriteCorpus` | una búsqueda emite cero escrituras a la tabla de shards — el test de regresión de la escritura en camino de lectura del original |
+| `TestReopen_LoadsIndex` | cerrar, reabrir sobre el mismo `Conn`, la búsqueda sigue funcionando |
+| `TestReopen_ModelMismatchFails` | un corpus escrito por el modelo A se rechaza al configurar el modelo B, con "reindexar" en el mensaje |
+| `TestReopen_DimMismatchFails` | `vec_index.dim` en desacuerdo con el largo del blob del shard es error |
+| `TestDelete_RemovesFromResults` | y sobrevive a una reapertura |
+| `TestEvict_LeastUsedOldestFirst` | el contrato de ordenamiento |
+| `TestEvict_CompactsShards` | un shard a medio llenar se compacta, las posiciones se renumeran, la búsqueda sigue correcta |
+| `TestNew_ReturnsBeforeUse` | una búsqueda inmediatamente después de `New` ve el corpus completo — el test de regresión de la carga sin await del original |
 
-## Acceptance checklist
+## Checklist de aceptación
 
 ```bash
 go vet ./...
-gotest                 # mem backend, standard Go
-gotest -tinygo         # indexdb backend, browser
-ls NOTICE              # licence obligation, master index D6
-grep -rn "webtyp.com/indexdb" --include="*.go" . | grep -v _test.go   # → empty
-grep -rn "syscall/js" --include="*.go" . | grep -v _wasm.go           # → only build-tagged quota code
+gotest                 # backend mem, Go estándar
+gotest -tinygo         # backend indexdb, navegador
+ls NOTICE              # obligación de licencia, índice maestro D6
+grep -rn "webtyp.com/indexdb" --include="*.go" . | grep -v _test.go   # → vacío
+grep -rn "syscall/js" --include="*.go" . | grep -v _wasm.go           # → solo el código de cuota con build tag
 ```
