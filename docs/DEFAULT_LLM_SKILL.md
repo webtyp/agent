@@ -121,7 +121,7 @@ var (
 func TestMain(m *testing.M) {
     // SQLite :memory: — no disk writes, fully isolated per-process, fast.
     // One shared instance for the whole test package; session isolation is
-    // guaranteed by the session_id column in every table (see MEMORY.md, section 2.3).
+    // guaranteed by the session_id column in every table (see history/MEMORY_SQLITE.md, section 2.3).
     testMemory = agent.NewSQLiteMemory(":memory:")
 
     testMCPHandler = mcpserve.NewHandler(cfg, providers, nil, nil)

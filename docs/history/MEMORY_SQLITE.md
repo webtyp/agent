@@ -1,3 +1,21 @@
+> **HISTORICAL — superseded.** This document records the SQLite + `sqlite-vec` study
+> that guided memory design up to 2026-09. It is kept for the reasoning it contains
+> (memory categorisation, RRF hybrid retrieval, schema shape), **not** as the current
+> plan. Two premises of this study did not survive contact with the WASM target:
+>
+> 1. `modernc.org/sqlite` does not compile under TinyGo for `GOOS=js GOARCH=wasm`.
+> 2. `sqlite-vec` is a C extension; loading it in the browser means shipping a second
+>    WASM runtime plus a JS VFS layer — exactly the JS dependency this ecosystem avoids.
+>
+> The current direction is IndexedDB via `webtyp.com/indexdb`, with the whole memory
+> layer written once against `storage.Conn` so it runs on any backend.
+> See [docs/PLAN.md](../PLAN.md).
+>
+> Sections 2 (memory categorisation), 2.3 (session scoping) and 3.3 (RRF) remain
+> normative — they are reused verbatim by the new plan.
+
+---
+
 # Advanced Agent Memory Architecture: SQLite & Hybrid Retrieval in tinywasm/agent
 
 This document defines the unified memory architecture for the `tinywasm/agent` system. It moves beyond traditional RAG (Retrieval-Augmented Generation) by leveraging **SQLite** as the single, consistent storage engine for both Backend (Go) and Frontend (WASM) environments. This approach ensures isomorphic data handling, structured persistence, and high-performance hybrid retrieval.
@@ -139,7 +157,7 @@ CREATE INDEX IF NOT EXISTS idx_tool_logs_session ON tool_logs(session_id, create
 
 ## 6. Diagram
 
-[See Memory Architecture Diagram](diagrams/MEMORY_ARCHITECTURE.md)
+[See Memory Architecture Diagram](../diagrams/MEMORY_ARCHITECTURE.md)
 
 ---
 
