@@ -8,13 +8,13 @@ Autonomous AI Agent system for `tinywasm`.
 ### Current Plan
 *   [**PLAN.md**](docs/PLAN.md) — **master index**: browser-native semantic search on IndexedDB.
     Architecture, shared contracts, build order and phase gates across every repository involved.
-*   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — one item left, and it is a measurement,
-    not a decision: how long a query forward pass takes in WASM. Decided items live in the
+*   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — one measurement left, not a decision: how
+    many f32 MFLOPS TinyGo does in WASM — measured in webtyp/vector, phase 2. Decided items live in the
     plan that executes them, not there.
 *   [This repository's own plan](docs/plans/agent.md) — the `agent` diff: memory moves out,
     `MemoryStore` gets segregated, the defects to fix along the way.
 *   [Plans for repositories not yet created](docs/plans/) — `tokenizer`, `weights`, `embed`,
-    `nn`. All four wait on the phase-3 opening benchmark (PENDING_ITEMS P1); each moves to
+    `transformer`. All four wait on the phase-3 opening benchmark (PENDING_ITEMS P1); each moves to
     its own repository once created. `vector` and `vectordb` already moved.
 
 ### Core Guides

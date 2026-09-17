@@ -86,21 +86,20 @@ dims—: Granite 97M es exactamente 12 capas de 384 tras su poda de 22 **[inv]**
 tenemos uno: un modelo de 60.3 promediado puede ser peor en español que uno de 57.5, y
 ninguna fuente desglosa por idioma. Dos mediciones: la primera descarta, la segunda elige.
 
-### 5.1 ¿Corre? — puerta de entrada de la fase 3
+### 5.1 ¿Corre? — se responde por aritmética, en `webtyp/vector`
 
-Forward pass de **20 tokens, 12 capas, 384 dims** en TinyGo `js/wasm`, con y sin SIMD128.
-Pesos aleatorios: mide el kernel, no la calidad, así que no hace falta elegir modelo.
-Media jornada.
+No hace falta un repositorio nuevo. `vector` mide `BenchmarkDot_384` **en MFLOPS** en su
+puerta de fase 2, y el forward pass sale por división: `PLAN.md` D4b lo cifra en ~428M MAC ≈
+**856M FLOP** para 20 tokens sobre 12 capas de 384 dims, así que `856 / MFLOPS = segundos`.
 
-Corriéndolo con tres tamaños de cuerpo se cubren los tres candidatos de una vez:
+El mismo número cubre los tres candidatos, porque entre ellos solo cambia el tamaño del
+cuerpo — 28,3M, 24,9M y 7,7M — y el costo escala con eso.
 
-| Cuerpo | Cubre | Si no pasa |
-|---|---|---|
-| 28,3M | Granite 97M | quedan los Bekko |
-| 24,9M | Bekko a25m | queda a8m |
-| 7,7M | Bekko a8m | se cae el nivel; hay que bajar a tabla estática |
+**Advertencia:** `vector/docs/PLAN.md` §2 afirma que el soporte de SIMD de TinyGo es
+incompleto y desaconseja usarlo. Si es así, los 856M FLOP se pagan escalares y el resultado
+puede caer en la banda mala. Confirmar o refutar esa afirmación es parte del benchmark.
 
-Umbrales y desenlaces, en `PLAN.md` §6.
+Umbrales y desenlaces, en [`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1.
 
 ### 5.2 ¿Sirve en español? — la que realmente elige
 

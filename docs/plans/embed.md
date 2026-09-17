@@ -19,7 +19,7 @@ implementa: tokenizar, correr el modelo, hacer pooling, normalizar.
 
 **No** es dueño de la tokenización (`webtyp/tokenizer`), ni de la aritmética vectorial
 (`webtyp/vector`), ni del almacenamiento, ni —en la fase 5— de la GPU (`webtyp/webgpu`,
-`webtyp/nn`).
+`webtyp/transformer`).
 
 ## El puerto
 
@@ -125,8 +125,8 @@ blob recién después de leer el cuerpo completo y verificar su largo contra la 
 
 ## Fase 5 — encoder transformer
 
-Una segunda implementación, `NewTransformer`, sobre `webtyp/nn` y `webtyp/webgpu`. Misma
-interfaz `Embedder`, distinto `ID()`. Está especificada en `plans/nn.md`; nada de este plan
+Una segunda implementación, `NewTransformer`, sobre `webtyp/transformer` y `webtyp/webgpu`. Misma
+interfaz `Embedder`, distinto `ID()`. Está especificada en `plans/transformer.md`; nada de este plan
 se bloquea por ella, y nada de acá cambia cuando aterrice salvo agregar un constructor.
 
 ## Evaluación

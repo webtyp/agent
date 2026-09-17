@@ -1,6 +1,6 @@
 ---
 DOC: "Lo que sigue sin decidir"
-STATUS: 2 mediciones pendientes, ninguna decisión bloqueada
+STATUS: 2 mediciones pendientes; la primera se hace en webtyp/vector, fase 2
 RELATED: docs/PLAN.md
 ---
 
@@ -15,70 +15,75 @@ RELATED: docs/PLAN.md
 > **Nota de idioma:** la prosa va en español; los bloques de código mantienen sus
 > comentarios en inglés.
 
-# P1 — El forward pass de una consulta en WASM: cuánto tarda
+# P1 — Cuántos MFLOPS de f32 hace TinyGo en WASM
 
-**No es una decisión: es una medición.** Es la única premisa del plan maestro que no está
-verificada, y de ella dependen `nn`, `tokenizer`, `weights`, el adaptador de `embed` y la
-elección de modelo de D5. Es la puerta de entrada de la fase 3 y está especificada en
-[`PLAN.md`](PLAN.md) §6.
+**No es una decisión: es una medición**, y no necesita ningún repositorio nuevo. Es la única
+premisa del plan que no está verificada, y de ella dependen `transformer`, `tokenizer`,
+`weights`, el adaptador de `embed` y la elección de modelo de D5.
 
-## El benchmark
+## Dónde se mide, y por qué ahí
 
-Un forward pass de **20 tokens** sobre **12 capas de 384 dims** en TinyGo `js/wasm`, corrido
-en navegador con `gotest`, con y sin SIMD128.
+Por **SRP**, en **`webtyp/vector`**: su concern es la aritmética de f32 sobre WASM, ya
+existe, ya tiene plan mergeado, y su propia puerta de fase 2 especifica `BenchmarkDot_384`
+como «el número por el que se juzga todo el diseño». Solo hay que **registrarlo en MFLOPS**,
+no en ns/op.
 
-Se puede hacer con un encoder de juguete de pesos aleatorios: mide el kernel, no la calidad,
-así que **no hace falta elegir el modelo para correrlo**. Media jornada.
+Por SRP el forward pass completo pertenece a `webtyp/transformer` — es quien posee los
+kernels del encoder. Pero ese repositorio no existe, su plan está obsoleto (escrito para
+WGSL), y **no hace falta para responder esto**: con los MFLOPS, el tiempo sale por división.
 
-Corriéndolo con tres tamaños de cuerpo se cubren de una vez los tres candidatos de D5:
-**28,3M** (`granite-embedding-97m-multilingual-r2`), **24,9M** (`bekko-v1-a25m`) y **7,7M**
-(`bekko-v1-a8m`). Ver [`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
+## La aritmética
 
-## Por qué decide tanto
+`PLAN.md` D4b: un forward pass de 20 tokens sobre 12 capas de 384 dims son **~428M MAC ≈
+856M FLOP**. Entonces `856 / MFLOPS = segundos`. Eso es todo.
 
-El navegador solo embebe **consultas**, no documentos (`PLAN.md` §1 y D4b). El cómputo de un
-forward pass es proporcional al largo de la secuencia, así que una consulta de 20 tokens
-cuesta del orden de 280M MACs — una fracción de un chunk de 8 000. Si eso corre rápido en
-WASM sobre CPU, no hace falta WebGPU en ningún momento del proyecto, y eso ya borró un
-repositorio (`webtyp/webgpu`) y convirtió la fase 5 en trabajo opcional.
+(Corrección de un número que circuló antes: eran ~280M MAC, pero esa cuenta era **solo el
+FFN**. Con atención y proyecciones incluidas son ~428M, un 53% más.)
 
-Lo que no sabemos es el factor constante. La estimación honesta es **150 ms – 3 s** según si
-se usa SIMD128, y ese rango es demasiado ancho para construir encima: en un extremo el
-diseño es holgado, en el otro no sirve.
+## La contradicción que hay que resolver primero
 
-## Los tres desenlaces, ya escritos
+`vector/docs/PLAN.md` §2 afirma, sobre este mismo target:
 
-| Resultado | Qué se construye |
+> No recurras a SIMD de WASM: el soporte de TinyGo es incompleto, y un intrínseco que no se
+> puede verificar es peor que un bucle correcto en todas partes.
+
+El plan maestro venía asumiendo SIMD128 disponible, y **el extremo optimista de la estimación
+dependía enteramente de eso**. Si `vector` tiene razón, los 856M FLOP se pagan escalares y el
+resultado probablemente caiga en la banda mala.
+
+O sea: **es posible que P1 ya esté decidido en contra del transformer**, y que solo falte
+medir para confirmarlo. Confirmar o refutar esa afirmación sobre TinyGo es parte del mismo
+benchmark.
+
+## Los tres desenlaces
+
+| Forward pass derivado | Qué se construye |
 |---|---|
 | **< 300 ms** | el transformer chico de D5 es viable. Fase 3 como está escrita. |
 | **300 ms – 1 s** | viable con reservas. Hay que decidir si esa latencia se acepta en el cuadro de búsqueda o se baja al nivel estático. **Es el único desenlace que vuelve a requerir una decisión tuya.** |
-| **> 1 s** | se baja a la tabla estática de D5 (~32–64 MB, sin atención), `nn` no se construye, y se acepta el recall más bajo. |
+| **> 1 s** | se baja a la tabla estática de D5 (~32–64 MB, sin atención), `transformer` no se construye, y se acepta el recall más bajo. |
 
-Los tres están cubiertos por el plan, así que ninguno es un bloqueo: el peor caso degrada a
-una opción escrita, no a una pregunta abierta.
+Los tres están cubiertos por el plan, así que ninguno bloquea: el peor caso degrada a una
+opción escrita, no a una pregunta abierta.
+
+Con el número medido se cubren de una vez los tres candidatos de D5, porque solo cambia el
+tamaño del cuerpo: **28,3M** (`granite-embedding-97m-multilingual-r2`), **24,9M**
+(`bekko-v1-a25m`) y **7,7M** (`bekko-v1-a8m`). Ver
+[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
 
 ## P1b — La segunda medición: recall@10 en español, sobre corpus real
 
-El benchmark de arriba dice **si corre**. No dice **cuál elegir**. El MTEB multilingüe es un
-promedio sobre 18 idiomas y nosotros tenemos uno, así que un modelo de 60.3 promediado puede
-ser peor en español que uno de 57.5 — y ninguna fuente desglosa por idioma.
+Lo de arriba dice **si corre**. No dice **cuál elegir**. El MTEB multilingüe promedia 18
+idiomas y nosotros tenemos uno, así que un modelo de 60.3 promediado puede ser peor en
+español que uno de 57.5.
 
 La medición que elige: 200–500 documentos representativos en español, 30–50 consultas reales
-con el documento correcto anotado a mano, y recall@10 + MRR por candidato. Un día de trabajo.
-Especificada en [`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
+con el documento correcto anotado a mano, y recall@10 + MRR por candidato. Un día de trabajo,
+especificada en [`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
 
 Es barata porque los tres candidatos son de 384 dims: `vector`, `vectordb`, el arena y el
-códec son idénticos para los tres, así que cambiar de candidato es re-embeber el corpus de
-prueba y nada más.
-
-## Antes de correrlo
-
-`plans/nn.md` está escrito para kernels WGSL y **no sirve como está** (`PLAN.md` §5 nota (e)).
-Hay que reescribirlo para un grafo de encoder con kernels escalares + SIMD128. El benchmark
-no lo necesita —se puede escribir suelto—, pero el repositorio no se crea hasta que ese plan
-exista.
-
----
+códec son idénticos, así que cambiar de candidato es re-embeber el corpus de prueba y nada
+más.
 
 # Registro de lo ya decidido
 
@@ -88,7 +93,7 @@ Cada uno vive en el plan que lo ejecuta. No repito el contenido acá.
 |---|---|
 | Flujo: backend embebe documentos, navegador embebe consultas, búsqueda offline total | `PLAN.md` §1 |
 | Un modelo, una implementación en Go, tres targets de compilación | `PLAN.md` D4 |
-| WebGPU sale del plan; `nn` sube a la fase 3 en versión CPU/WASM | `PLAN.md` D4b, §5 nota (e) |
+| WebGPU sale del plan; `transformer` sube a la fase 3 en versión CPU/WASM | `PLAN.md` D4b, §5 nota (e) |
 | Dimensión de trabajo: 384 | `PLAN.md` D0 |
 | Modelo: transformer multilingüe chico (~118M, ~120 MB int8), no estático ni de 600M | `PLAN.md` D5 |
 | El catálogo de Workers AI / Ollama descartado como fuente del modelo | `PLAN.md` D4 |

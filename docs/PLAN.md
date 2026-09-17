@@ -19,7 +19,7 @@ REVIEWER: none
 > modificaciones. Los planes de los repositorios que **ya existen** están en su
 > `docs/PLAN.md` y §5 enlaza a ellos.
 >
-> **`tokenizer`, `weights`, `embed` y `nn` se crean recién cuando la fase 3 abra**, y su
+> **`tokenizer`, `weights`, `embed` y `transformer` se crean recién cuando la fase 3 abra**, y su
 > puerta de apertura es un benchmark (§6). Crear un repositorio antes de saber si su diseño
 > es viable es deuda, no adelanto.
 >
@@ -104,7 +104,7 @@ construyeron `storage`, `orm` y `ddl`.
  └───────────┘   │        │     │           │
         ┌────────┘        │     │           │
  ┌──────▼─────┐ ┌─────────▼──┐ ┌▼─────────┐ ┌▼──────────────┐
- │ tokenizer  │ │ nn         │ │ storage  │ │ storage       │
+ │ tokenizer  │ │transformer │ │ storage  │ │ storage       │
  │ texto→ids  │ │ encoder,   │ │ +indexdb │ │ +sqlt/postgres│
  └──────┬─────┘ │ CPU/WASM   │ └──────────┘ └───────────────┘
         │       └─────┬──────┘
@@ -217,7 +217,7 @@ necesite.
 ### D4 — Un modelo, una implementación en Go, tres targets
 
 `embed.Embedder` es el contrato único. Detrás hay **una sola implementación**, no dos:
-`tokenizer` + `weights` + el grafo del encoder en `nn`, todo en Go.
+`tokenizer` + `weights` + el grafo del encoder en `transformer`, todo en Go.
 
 Lo que cambia entre entornos es el target de compilación, no el código ni los pesos:
 
@@ -240,22 +240,36 @@ el espacio vectorial común, que es justamente el requisito.
 **Lo que esto borra del plan anterior:** `webtyp/webgpu` y la fase 5 como proyecto abierto.
 El razonamiento está en D4b.
 
-### D4b — El cómputo de una consulta es 400× menor que el de un documento, y eso borra WebGPU
+### D4b — El cómputo de una consulta es chico, y eso borra WebGPU
 
 WebGPU entró al plan para embeber **documentos** rápido. El navegador no embebe documentos.
 
 Un forward pass cuesta en proporción al largo de la secuencia. Una consulta de 20 tokens
-sobre 12 capas de 384 dims son del orden de **280M MACs** — una fracción de lo que cuesta un
-chunk de 8 000 tokens. Eso cabe en WASM sobre CPU, sin `navigator.gpu`, sin WGSL, sin
-bindings de GPU.
+sobre 12 capas de 384 dims son **~428M MAC ≈ 856M FLOP** [calc]:
 
-Por lo tanto `nn` sube de la fase 5 a la **fase 3**, y lo hace en su versión CPU/WASM: el
-grafo del encoder en Go, con kernels escalares y SIMD128 donde rinda. Es incomparablemente
-más simple que escribir WGSL.
+```
+por capa:  QKV        3 × 20 × 384 × 384  =  8,85M      atención  2 × 20 × 20 × 384 = 0,31M
+           proyección     20 × 384 × 384  =  2,95M      FFN   2 × 20 × 384 × 1536 = 23,60M
+                                                              ≈ 35,7M MAC/capa × 12 = 428M
+```
 
-**Esto no está medido, y es la única premisa del plan que no lo está.** La estimación honesta
-es 150 ms – 3 s según si se usa SIMD128, y ese rango es demasiado ancho para construir
-encima. Por eso la fase 3 abre con un benchmark y no con código de producción: ver §6.
+Eso cabe en WASM sobre CPU sin `navigator.gpu`, sin WGSL, sin bindings de GPU. Por lo tanto
+`transformer` sube de la fase 5 a la **fase 3** en versión CPU/WASM, y `webtyp/webgpu` sale
+del plan.
+
+**Esto no está medido, y es la premisa más frágil del plan.** Peor: hay una contradicción
+declarada entre documentos. `vector/docs/PLAN.md` §2 dice, sobre el mismo target:
+
+> No recurras a SIMD de WASM: el soporte de TinyGo es incompleto, y un intrínseco que no se
+> puede verificar es peor que un bucle correcto en todas partes.
+
+Si eso sigue vigente, los 856M FLOP se pagan **escalares**, y el forward pass puede irse a
+varios segundos — la banda en la que el transformer no sirve para el navegador y hay que
+bajar a la tabla estática de D5.
+
+**No hace falta construir `transformer` para saberlo.** El número que decide es cuántos
+MFLOPS de f32 hace TinyGo en WASM, y ese es concern de `vector`, que ya lo mide en su propia
+puerta de fase 2 (`BenchmarkDot_384`). De ahí el forward pass sale por división. Ver §6.
 
 ### D5 — El presupuesto del navegador elige el modelo; el español lo restringe
 
@@ -325,7 +339,7 @@ acá.
 | `webtyp/vectordb` | **creado** | almacén de documentos + kNN + filtros + LRU | 2 | [`vectordb/docs/PLAN.md`](https://github.com/webtyp/vectordb/blob/main/docs/PLAN.md) |
 | `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
 | `webtyp/weights` | **nuevo** | formato de artifact int8 + caché en navegador | 3 | [`docs/plans/weights.md`](plans/weights.md) |
-| `webtyp/nn` | **nuevo** | grafo del encoder + kernels CPU/WASM | 3 | [`docs/plans/nn.md`](plans/nn.md) — **hay que reescribirlo**, ver nota (e) |
+| `webtyp/transformer` | **nuevo** | grafo del encoder + kernels CPU/WASM | 3 | [`docs/plans/transformer.md`](plans/transformer.md) — **hay que reescribirlo**, ver nota (e) |
 | `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | [`docs/plans/agent.md`](plans/agent.md) |
 | `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando `plans/agent.md` §2 cierre |
 | `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 0 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
@@ -344,8 +358,8 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   y borra su aritmética propia de `len(b)/4` — una verificación que la librería ya hace se
   llama, no se re-implementa. Alcance exacto en `model/docs/PLAN.md`: sobre un blob
   multi-vector solo verifica «múltiplo de 4»; la concordancia de `dim` la impone `vec_index`.
-- **(e) `webtyp/webgpu` salió del plan y `plans/nn.md` quedó obsoleto.** D4b borra la
-  necesidad de GPU. `plans/nn.md` está escrito para WGSL y hay que reescribirlo para kernels
+- **(e) `webtyp/webgpu` salió del plan y `plans/transformer.md` quedó obsoleto.** D4b borra la
+  necesidad de GPU. `plans/transformer.md` está escrito para WGSL y hay que reescribirlo para kernels
   CPU/WASM antes de crear el repo; el plan de WebGPU quedó en
   [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva solo si el
   benchmark de la fase 3 dice que WASM no alcanza.
@@ -421,6 +435,13 @@ ejecuta en un navegador headless vía `wasmbrowsertest`, y el runtime de Go para
 trae `runtime.ReadMemStats` completo, así que `AllocsPerRun` mide de verdad ahí. La
 aserción de allocations es parte de la puerta en ambos targets.
 
+**Entregable extra de esta fase, y es el que desbloquea la fase 3:** `BenchmarkDot_384`
+corrido en navegador tiene que quedar registrado **en MFLOPS**, no solo en ns/op. Es el
+número del que la fase 3 deriva el costo del forward pass (D4b), así que registrarlo en la
+unidad equivocada obliga a correr todo de nuevo. Con y sin la variante desenrollada, y
+anotando si el SIMD de TinyGo está disponible o no — `vector/docs/PLAN.md` §2 afirma que no
+lo está, y esa afirmación es la que hay que confirmar o refutar acá.
+
 La única excepción es `gotest -tinygo`, donde el conteo de allocations no es comparable
 porque el GC es otro. Esa bandera es para los casos que requieren específicamente verificar
 el target TinyGo — como los tests de blob de `indexdb` — no para el presupuesto de
@@ -428,36 +449,27 @@ allocations de `vector`.
 
 ### Fase 3 — El embedder: un modelo, tres targets
 
-**Puerta de entrada — un benchmark, antes de crear un solo repositorio.** Es la única
-premisa del plan que no está medida (D4b), y condiciona todo lo que viene después:
-
-> Un forward pass de **20 tokens** sobre **12 capas de 384 dims** en TinyGo `js/wasm`,
-> corrido en navegador con `gotest`, con y sin SIMD128. Media jornada de trabajo.
-> Se registra el número, no una impresión.
+**Puerta de entrada: aritmética, no un repositorio nuevo.** La fase 2 entrega los MFLOPS de
+f32 en WASM (`BenchmarkDot_384`). Dividir los 856M FLOP de D4b por ese número da el tiempo
+del forward pass de una consulta, y ese tiempo decide qué se construye. Es una división, no
+un proyecto.
 
 Los tres desenlaces —seguir como está escrito, decidir sobre la latencia, o bajar a la tabla
-estática— están tabulados con sus umbrales en
-[`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1. Ninguno es un bloqueo: el peor caso degrada a una
-opción ya escrita.
+estática de D5— están tabulados con sus umbrales en [`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1.
+Ninguno es un bloqueo: el peor caso degrada a una opción ya escrita.
 
-El benchmark puede hacerse con un encoder de juguete de pesos aleatorios: mide el kernel, no
-la calidad. No hace falta elegir el modelo para correrlo.
+**Construcción, si la aritmética da verde:** `tokenizer` y `weights` en paralelo, luego
+`transformer`, luego el adaptador de `embed` que los compone. Antes de crear `transformer`
+hay que reescribir su plan, que sigue escrito para WGSL (§5 nota (e)).
 
-Corriéndolo con tres tamaños de cuerpo se cubren los tres candidatos de D5 de una sola vez:
-**28,3M** (Granite 97M), **24,9M** (Bekko a25m) y **7,7M** (Bekko a8m). Si el de 28,3M no
-pasa, quedan los Bekko; si no pasa el de 7,7M, se cae el nivel entero y hay que bajar a la
-tabla estática.
-
-**Construcción, si la puerta abre:** `tokenizer` y `weights` en paralelo, luego `nn`, luego
-el adaptador de `embed` que los compone. `nn` es el que subió desde la fase 5 (D4b), en su
-versión CPU/WASM — su plan actual está escrito para WGSL y hay que reescribirlo primero
-(§5 nota (e)).
+`transformer` confirma con su propio benchmark lo que la aritmética predijo — un forward pass
+real de 20 tokens. Si el medido se aparta más de 2× del derivado, el que manda es el medido y
+la decisión se revisa.
 
 **Puerta de salida:** el mismo código Go produce **el mismo vector para el mismo texto** en
 los tres targets de D4 — navegador (WASM), backend (nativo) y Worker (WASM) — con igualdad
 bit a bit o dentro de una tolerancia documentada. Y un corpus real en español se indexa en el
-backend, viaja al cliente, y se busca **offline** con un recall@10 documentado contra una
-referencia.
+backend, viaja al cliente, y se busca **offline** con un recall@10 documentado.
 
 Esa igualdad entre targets es el criterio que hace válido todo el plan: si los tres no
 coinciden, no hay un solo espacio vectorial y el requisito de no re-indexar nunca se cae.
