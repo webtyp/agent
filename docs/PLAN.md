@@ -289,7 +289,7 @@ repositorio Go que porte su lógica — `vectordb` por sobre todo — debe lleva
 
 ### D7 — El isomorfismo vive en `orm` y `ddl`, no en `storage.Conn` crudo
 
-Esto contradice una versión anterior de este plan y es la corrección más importante de §7,
+Esto contradice una versión anterior de este plan y es la corrección más importante de `plans/agent.md`,
 así que se argumenta acá una sola vez.
 
 `storage.Executor` es, literalmente, una interfaz de strings SQL (`Exec(query string, ...)`,
@@ -305,7 +305,7 @@ backend de navegador como banco de pruebas — la peor forma de descubrir que el
 tenía una regla no escrita. Lo mismo para el esquema: «declarar tablas una vez y que cada
 backend las materialice» es **`webtyp.com/ddl`**, con su propia suite de conformance.
 
-**Consecuencia para §7:** `agent` depende de `orm` y `ddl`, y **no** de `storage`
+**Consecuencia para `plans/agent.md`:** `agent` depende de `orm` y `ddl`, y **no** de `storage`
 directamente. `vectordb` sí recibe un `storage.Conn` inyectado, porque opera sobre tablas
 que él mismo define y necesita el control fino del lote — pero también habla el protocolo
 `Compile → Exec`, nunca SQL.
