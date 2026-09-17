@@ -93,12 +93,12 @@ Cada uno vive en el plan que lo ejecuta. No repito el contenido acá.
 | Modelo: transformer multilingüe chico (~118M, ~120 MB int8), no estático ni de 600M | `PLAN.md` D5 |
 | El catálogo de Workers AI / Ollama descartado como fuente del modelo | `PLAN.md` D4 |
 | `bge-small-en-v1.5` descartado: solo inglés, y el español es requisito duro | `PLAN.md` D5 |
-| La memoria sale de `agent` a `webtyp/agentmemory` | `PLAN.md` §7.2 |
-| `MemoryStore` segregado en 4 contratos, compuesto bajo el mismo nombre | `PLAN.md` §7b |
-| `Config` no gana un `Embedder`; se inyecta en `agentmemory` | `PLAN.md` §7.5 |
+| La memoria sale de `agent` a `webtyp/agentmemory` | `plans/agent.md` §1.2 |
+| `MemoryStore` segregado en 4 contratos, compuesto bajo el mismo nombre | `plans/agent.md` §2 |
+| `Config` no gana un `Embedder`; se inyecta en `agentmemory` | `plans/agent.md` §1.5 |
 | La conformance de `MemoryStore` se escribe **antes** que `agentmemory` | `PLAN.md` fase 4 |
-| `Message.TokenCount` suma tres unidades distintas — defecto a corregir | `PLAN.md` §7.8 |
-| `ContextWindowConfig` se queda donde está, con las respuestas del gate | `PLAN.md` §7 |
+| `Message.TokenCount` suma tres unidades distintas — defecto a corregir | `plans/agent.md` §1.8 |
+| `ContextWindowConfig` se queda donde está, con las respuestas del gate | `plans/agent.md` §1 |
 | `model.ValidateVector` es el dueño del chequeo de forma | `model/docs/PLAN.md`, `vectordb/docs/PLAN.md` |
 | `orm` y `ddl` funcionan bajo TinyGo wasm | `PLAN.md` D7 |
 | `webtyp/binary` no sirve como códec de vectores | `PLAN.md` O2 |

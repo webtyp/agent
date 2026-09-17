@@ -5,10 +5,14 @@ EXECUTOR: unassigned
 REVIEWER: none
 ---
 
-> Este es el **plan índice**. No le pertenece código. Cada repositorio listado en §5 lleva
-> su propio `docs/PLAN.md` con el diff concreto; este archivo es dueño de la arquitectura,
-> los contratos compartidos, el orden de construcción y los criterios de aceptación que
-> cruzan repositorios.
+> Este es el **plan índice**. No le pertenece código — ni siquiera el de este repositorio,
+> que vive en [`docs/plans/agent.md`](plans/agent.md) como el de cualquier otro. Cada
+> repositorio de §5 lleva su propio plan con el diff concreto; este archivo es dueño de la
+> arquitectura, los contratos compartidos, el orden de construcción y los criterios de
+> aceptación que cruzan repositorios.
+>
+> **Regla de extensión:** si una sección de acá explica *cómo* se hace algo en un repositorio,
+> está en el archivo equivocado. El índice dice qué, quién, en qué orden y con qué puerta.
 >
 > Los planes de los repositorios que **todavía no existen** viven en [`docs/plans/`](plans/)
 > hasta que el repositorio se cree; entonces el archivo se mueve a su `docs/PLAN.md` sin
@@ -59,27 +63,21 @@ el mismo código de memoria corra sobre un backend SQL (servidor) y sobre Indexe
 
 ## 2. Por qué esto reemplaza al estudio de SQLite
 
-El diseño anterior ([`docs/history/MEMORY_SQLITE.md`](history/MEMORY_SQLITE.md)) asumía un
-único motor de almacenamiento en todas partes: SQLite en el servidor, el mismo SQLite
-compilado a WASM en el navegador, con `sqlite-vec` para la búsqueda vectorial. Dos
-premisas fallaron:
+El diseño anterior ([`history/MEMORY_SQLITE.md`](history/MEMORY_SQLITE.md)) asumía un único
+motor en todas partes: SQLite en el servidor, el mismo compilado a WASM en el navegador, con
+`sqlite-vec` para la búsqueda vectorial. Dos premisas fallaron: `modernc.org/sqlite` es Go
+puro pero **no** compila bajo TinyGo para `js/wasm`, y `sqlite-vec` es una extensión en C —
+usarla en el navegador significa un segundo runtime WASM más una capa VFS en JavaScript,
+exactamente la dependencia JS que este ecosistema existe para evitar.
 
-- `modernc.org/sqlite` es Go puro pero **no** compila bajo TinyGo para
-  `GOOS=js GOARCH=wasm`. Es una dependencia exclusiva de backend.
-- `sqlite-vec` es una extensión en C. Usarla en el navegador significa embarcar un segundo
-  runtime WASM más una capa VFS en JavaScript — exactamente la dependencia JS que este
-  ecosistema existe para evitar, y una segunda copia de cada byte almacenado.
+**Sobrevive y se reutiliza tal cual:** la categorización de memoria (corto plazo / episódica
+/ semántica / de acciones), el alcance de conocimiento global por `session_id IS NULL`, y RRF
+como estrategia eventual de recuperación híbrida.
 
-Lo que sobrevive de ese estudio y se **reutiliza tal cual**: la categorización de memoria
-(corto plazo / episódica / semántica / de acciones), la regla de alcance de conocimiento
-global por `session_id IS NULL`, y Reciprocal Rank Fusion como estrategia eventual de
-recuperación híbrida.
-
-Lo que lo reemplaza: el navegador ya trae un almacén persistente, transaccional y
-estructurado — IndexedDB — y este ecosistema ya tiene un driver para él. El isomorfismo
-sube un nivel: en vez de "el mismo motor en todas partes", pasa a ser "el mismo contrato
-`storage.Query` en todas partes", que es justamente para lo que se construyeron
-`webtyp.com/storage`, `webtyp.com/orm` y `webtyp.com/ddl`.
+**Lo reemplaza:** el navegador ya trae un almacén persistente y transaccional —IndexedDB— y
+este ecosistema ya tiene driver. El isomorfismo sube un nivel: de «el mismo motor en todas
+partes» a «el mismo contrato `storage.Query` en todas partes», que es para lo que se
+construyeron `storage`, `orm` y `ddl`.
 
 ## 3. Arquitectura
 
@@ -157,43 +155,27 @@ structured clone. En Go, los vectores **nunca** son un `[]float32` por documento
 una única arena contigua `[]float32` de `N × Dim`, donde el documento *i* ocupa
 `arena[i*Dim : (i+1)*Dim]`.
 
-Justificación, en el orden que importa:
+Por qué, en el orden que importa:
 
 1. **`js.ValueOf` no puede transportar un vector, y fallar cuesta la aplicación entera.**
-   `execute.go:create` arma un `map[string]any` y se lo entrega a `store.Call("add", …)`,
-   que pasa por `js.ValueOf`. `js.ValueOf` acepta `[]any` pero **ni `[]byte` ni
-   `[]float32`**, y hace pánico con cualquier otra cosa. Bajo TinyGo
-   `GOOS=js GOARCH=wasm` **no hay `recover()`** (`tx.go:getStore` ya lo documenta en ese
-   mismo repositorio), así que ese pánico es un crash irrecuperable, no un valor de error.
-   Codificar un vector de 384 dims como `[]any` para sortearlo cuesta 384 allocations
-   boxeadas y ~3 KB de heap JS por documento, contra 1536 bytes de datos reales. Inviable.
-
-2. **`js.CopyBytesToJS` / `js.CopyBytesToGo` son las únicas primitivas de copia masiva, y
-   TinyGo implementa ambas.** Son un `memcpy` entre la memoria lineal WASM y un
-   `Uint8Array`. El camino `[]float32` → (reinterpretación O(1)) → `[]byte` → un memcpy →
-   `Uint8Array` no tiene representación intermedia: ni JSON, ni base64, ni boxing, **ni
-   `string`** (ver §8 R4: convertir a `string` es exactamente el bug que hay que arreglar).
-
-3. **`FieldBlob` ya existe** (`model/field.go:13`) y ya está cableado en `IsZeroPtr`,
-   `ValuesFrom` y los codecs. Introducir un `FieldType` nuevo obligaría a editar cada
-   `switch` exhaustivo en `model`, `storage/mem`, `sqlt`, `postgres` e `indexdb` — un
-   cambio incompatible en seis repositorios para no comprar nada. `model.Vector(dim)` es
-   un **`Kind`** sobre ese mismo `FieldBlob`, no un `FieldType`: agrega la dimensión al
-   esquema sin tocar un solo `switch`. Ver `model/docs/PLAN.md`.
-
-4. **`[]byte` es la única representación isomórfica.** Mapea a `BLOB` (SQLite), `BYTEA`
-   (Postgres) y `Uint8Array` (IndexedDB). Un `Float32Array` sería marginalmente más rápido
-   en el navegador y no tiene contraparte SQL.
-
-5. **La arena es lo que realmente hace rápidas las consultas.** El scoring lee solamente
-   memoria lineal WASM, así que una consulta cruza el puente JS **cero veces**. No asigna
-   nada por candidato. El GC conservador de TinyGo ve un objeto grande en vez de N slices
-   pequeños — esto pesa mucho más bajo TinyGo que bajo Go estándar. Y el producto punto
-   recorre memoria contigua, con localidad de caché óptima.
-
+   Acepta `[]any` pero **ni `[]byte` ni `[]float32`**, y hace pánico con cualquier otra cosa.
+   Bajo TinyGo `GOOS=js GOARCH=wasm` **no hay `recover()`** (`indexdb/tx.go:getStore` ya lo
+   documenta), así que ese pánico es un crash irrecuperable, no un error. Y codificar 384
+   dims como `[]any` para sortearlo cuesta 384 allocations boxeadas contra 1536 bytes de
+   datos reales.
+2. **`js.CopyBytesToJS` / `CopyBytesToGo` son las únicas primitivas de copia masiva**, y
+   TinyGo implementa ambas. `[]float32` → (reinterpretación O(1)) → `[]byte` → un memcpy →
+   `Uint8Array`: sin JSON, sin base64, sin boxing, **ni `string`** (§8).
+3. **`[]byte` es la única representación isomórfica:** `BLOB` (SQLite), `BYTEA` (Postgres),
+   `Uint8Array` (IndexedDB). Un `Float32Array` no tiene contraparte SQL.
+4. **`FieldBlob` ya existe** (`model/field.go:13`) y ya está cableado. Un `FieldType` nuevo
+   obligaría a editar cada `switch` exhaustivo en seis repositorios para no comprar nada.
+   `model.Vector(dim)` es un **`Kind`** sobre ese mismo `FieldBlob`, no un `FieldType`.
+5. **La arena es lo que hace rápidas las consultas.** El scoring lee solo memoria lineal
+   WASM: cero cruces del puente JS por consulta, cero allocations por candidato, y el GC
+   conservador de TinyGo ve un objeto grande en vez de N slices chicos.
 6. **Los vectores se guardan normalizados L2**, lo que convierte la similitud coseno en un
-   producto punto simple. Esto elimina un `sqrt` y una división por documento por consulta.
-   (El original en JS precomputa la magnitud pero igual divide N veces por búsqueda.)
+   producto punto y elimina un `sqrt` y una división por documento por consulta.
 
 **Costo:** ya está en D0 — 1,5 KB por documento, con el techo en ~100 k. La cuantización
 int8 que corre ese techo es trabajo posterior a la v1; ver §6, Fase 5.
@@ -280,52 +262,24 @@ encima. Por eso la fase 3 abre con un benchmark y no con código de producción:
 Dos restricciones, en este orden:
 
 1. **El navegador tiene que poder descargar el artifact y correr un forward pass** (D4b).
-   Eso fija el techo de tamaño, porque el navegador es el entorno más apretado de los tres.
-2. **El español es requisito duro**, no preferencia. Descarta los encoders solo-inglés —
-   `all-MiniLM-L6-v2`, `bge-small-en-v1.5`, `bge-base-en-v1.5` — incluido el caso doloroso:
-   `bge-small-en-v1.5` son 33M parámetros y estaría en el catálogo de Cloudflare, o sea que
-   habría sido la opción más barata de todas. Solo inglés, descartada.
+   Fija el techo de tamaño, porque es el más apretado de los tres targets.
+2. **El español es requisito duro.** Descarta los encoders solo-inglés, incluido el caso
+   doloroso: `bge-small-en-v1.5` son 33M parámetros y está en el catálogo de Cloudflare, o
+   sea que habría sido la opción más barata de todas.
 
-Los niveles de tamaño, con el multilingüe ya filtrado. Los candidatos y sus cifras salen de
-[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md), que es el documento que manda
-sobre esta tabla:
+**Elegido: un transformer multilingüe chico de 384 dims** — atención real, muy por encima de
+una tabla estática, y sin GPU para el único trabajo que hace en el navegador (D4b). El nivel
+grande (`bge-m3`, `qwen3-embedding-0.6b`: 1024 dims, ~600M) queda descartado porque solo
+corre en el servidor, y eso obliga a un segundo modelo para la consulta.
 
-| Nivel | Modelo | Cómputo | Dims | ONNX int8 | Contexto | MTEB ML |
-|---|---|---|---|---|---|---|
-| Tabla estática | model2vec / "potion" | — | 128–256 | ~32–64 MB | — | el más bajo |
-| **Transformer chico** | **`granite-embedding-97m-multilingual-r2`** | **28,3M** | **384** | ~98 MB | **32 K** | **60.3** |
-| | `bekko-embedding-v1-a25m` | 24,9M | 384 | ~60 MB | 8 K | 57.5 |
-| | `bekko-embedding-v1-a8m` | **7,7M** | 384 | **~25 MB** | 8 K | 56.2 |
-| Transformer grande | `bge-m3`, `qwen3-embedding-0.6b` | 568–600M | 1024 | ~300–600 MB | 8–32 K | el más alto |
+Candidatos, cifras, el significado de «parámetros activos» y el método de elección están en
+[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md), **que manda sobre este
+párrafo**. Primer candidato: `granite-embedding-97m-multilingual-r2` (28,3M de cuerpo, 384
+dims, 32 K de contexto, Apache 2.0).
 
-**Elegido: el nivel del medio**, con Granite 97M R2 como primer candidato. Atención real,
-muy por encima de una tabla estática, y —según D4b— sin GPU para el único trabajo que hace en
-el navegador. El nivel grande queda descartado porque rompe la premisa de un solo modelo:
-solo corre en el servidor, y eso obliga a un segundo modelo para la consulta.
-
-**La columna «Cómputo» no es la de parámetros totales, y la distinción decide.** En estos
-modelos la mayor parte del peso es la tabla de embeddings —un lookup—, no capas a ejecutar:
-Granite 97M son 69,1M de tabla (180 k tokens × 384) más 28,3M de cuerpo. La descarga la
-gobierna el total; el forward pass de la consulta, solo el cuerpo. Por eso Granite y Bekko
-a25m cuestan casi lo mismo por consulta (28,3M contra 24,9M) aunque uno pese 98 MB y el otro
-60 MB.
-
-Eso también confirma la calibración del benchmark de §6: 12 capas de 384 dims es exactamente
-la forma de Granite 97M tras su poda de 22 a 12 capas.
-
-**Descartado explícitamente para que no se re-proponga:** `multilingual-e5-small` (50.9,
-contexto de 512, y exige prefijos `query:`/`passage:` que habría que replicar idénticos en
-los tres targets de D4 — superficie extra para el defecto más caro del diseño) y
-`paraphrase-multilingual-MiniLM-L12-v2` (36.6, obsoleto en recuperación). Ambos figuraban
-como candidatos en una versión anterior de este documento.
-
-**La elección final no se hace por esta tabla.** El MTEB multilingüe es un promedio sobre 18
-idiomas y nosotros tenemos uno; un modelo de 60.3 promediado puede ser peor en español que
-uno de 57.5. Se decide con dos mediciones —el benchmark de cómputo de §6 y un recall@10 sobre
-corpus real en español— especificadas en
-[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5. Los tres candidatos son de
-384 dims, así que cambiar entre ellos no toca `vector`, `vectordb` ni el códec: solo
-re-embeber el corpus de prueba.
+Lo único que este índice necesita fijar: el artifact se embarca **cuantizado a int8 con
+escalas por fila** y se cachea en IndexedDB tras la primera descarga — se baja una vez por
+navegador, no una vez por sesión.
 
 ### D6 — Licencias
 
@@ -338,29 +292,18 @@ repositorio Go que porte su lógica — `vectordb` por sobre todo — debe lleva
 Esto contradice una versión anterior de este plan y es la corrección más importante de §7,
 así que se argumenta acá una sola vez.
 
-`storage.Executor` es, literalmente, una interfaz de strings SQL:
+`storage.Executor` es, literalmente, una interfaz de strings SQL (`Exec(query string, ...)`,
+`QueryRow(query string, ...)`). Un backend de navegador no tiene SQL que poner ahí: `indexdb`
+contrabandea un `storage.Query` por `args[0]` y el modelo por `args[1]`; `storage/mem` ni
+mira los argumentos y lee su propio `lastQ`. Es decir, **`storage.Conn` solo es portable si
+se lo llama con el protocolo exacto `Compile(q, m) → Plan → Exec(plan.Query, plan.Args...)`**.
+Llamarlo de otra forma compila y falla en runtime, distinto en cada backend.
 
-```go
-Exec(query string, args ...any) error
-QueryRow(query string, args ...any) Scanner
-```
-
-Un backend de navegador no tiene SQL que poner ahí. Lo que hace `indexdb` es contrabandear
-un `storage.Query` por `args[0]` y el modelo por `args[1]` (`indexdb/adapter.go`,
-`func (d *adapter) Exec`); `storage/mem` ni siquiera mira los argumentos: lee `e.lastQ`,
-que le dejó su propio `Compile`. Es decir: **`storage.Conn` sólo es portable si se lo llama
-con el protocolo exacto `Compile(q, m) → Plan → Exec(plan.Query, plan.Args...)`.** Llamarlo
-de cualquier otra forma compila y falla en runtime, distinto en cada backend.
-
-Ese protocolo ya tiene una implementación probada y con conformance: **`webtyp.com/orm`**
-(`orm/db.go`, `orm/qb.go`). Escribir `MemoryStore` contra `storage.Conn` "crudo" significa
-reimplementar `orm` adentro de `agent`, con un backend de navegador como banco de pruebas
-— que es la peor forma posible de descubrir que el protocolo tenía una regla no escrita.
-
-Lo mismo para el esquema: "declarar tablas una vez y que cada backend las materialice" es
-**`webtyp.com/ddl`** (`ddl/db.go: New(conn Execer, ddlCompiler Compiler)`, `ddl/schema.go`,
-`ddl/sync.go`, y su propia suite `ddl/conformance/`). `agent` declara `model.Definition`
-y se lo entrega a `ddl`; no escribe DDL ni crea object stores.
+Ese protocolo ya tiene implementación probada y con conformance: **`webtyp.com/orm`**
+(`orm/db.go`, `orm/qb.go`). Escribir contra `storage.Conn` crudo es reimplementar `orm` con un
+backend de navegador como banco de pruebas — la peor forma de descubrir que el protocolo
+tenía una regla no escrita. Lo mismo para el esquema: «declarar tablas una vez y que cada
+backend las materialice» es **`webtyp.com/ddl`**, con su propia suite de conformance.
 
 **Consecuencia para §7:** `agent` depende de `orm` y `ddl`, y **no** de `storage`
 directamente. `vectordb` sí recibe un `storage.Conn` inyectado, porque opera sobre tablas
@@ -383,38 +326,29 @@ acá.
 | `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
 | `webtyp/weights` | **nuevo** | formato de artifact int8 + caché en navegador | 3 | [`docs/plans/weights.md`](plans/weights.md) |
 | `webtyp/nn` | **nuevo** | grafo del encoder + kernels CPU/WASM | 3 | [`docs/plans/nn.md`](plans/nn.md) — **hay que reescribirlo**, ver nota (e) |
-| `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | este repositorio, §7 y §7b |
-| `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando §7b cierre |
+| `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | [`docs/plans/agent.md`](plans/agent.md) |
+| `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando `plans/agent.md` §2 cierre |
 | `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 0 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
 
 Notas, cada una es una decisión que alguien va a querer revertir sin leer el porqué:
 
-- **(a) El orden de la fase 1 cambió: `indexdb` antes que `storage`.** `model` sigue primero
-  (los otros dos dependen de su tag). Pero la suite de conformance de `storage` sólo puede
-  exigir blobs una vez que existe un backend que los soporta: escribir la cláusula antes que
-  el driver deja el repositorio con un test rojo esperando a otro repositorio.
-- **(b) `webtyp/jsvalue` no está en esta tabla, y es deliberado.** Es dueño del códec
-  `[]byte` ↔ JS y **tiene un bug real de corrupción** (§8 R4), pero este plan no lo necesita:
-  el camino de lectura de `jsvalue` ya funciona, y `indexdb/docs/PLAN.md` §1 resuelve el
-  camino de escritura con su propio `toJSValue`, sin pasar por `jsvalue`. El bug afecta a
-  otros consumidores y merece su propio plan; no bloquea a éste.
-- **(c) `vector-storage` pasó a fase 0.** Congelar una referencia histórica en JS no
-  desbloquea ninguna persistencia; no pertenece a la fase 1. No bloquea nada.
-- **(e) `webtyp/webgpu` salió del plan, y `plans/nn.md` quedó obsoleto.** D4b borra la
-  necesidad de GPU: el navegador solo embebe consultas, y eso corre en WASM sobre CPU.
-  `plans/nn.md` está escrito para kernels WGSL y **no sirve como está** — hay que reescribirlo
-  para un grafo de encoder con kernels escalares + SIMD128 antes de crear el repositorio.
-  `plans/webgpu.md` quedó archivado en [`docs/history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md). Si el benchmark de apertura de la fase 3
-  dice que WASM no alcanza, se desarchiva; mientras tanto, un plan vivo para un repositorio
-  que no vamos a construir es exactamente la deuda que el skill prohíbe.
-- **(d) Dueño del chequeo de dimensión: `model`. DECIDIDO.** `vectordb` llama a
-  `model.ValidateVector` y borra su aritmética propia de `len(b)/4`. «Una verificación que la
-  librería ya hace se llama, nunca se re-implementa en el call site» — DRY, y la fila del
-  libro mayor «formas de hacer lo mismo» vuelve a cero. Matiz que queda escrito en el doc
-  comment de `ValidateVector`: sobre `vec_shards.data`, que es un `Blob()` multi-vector,
-  sólo puede verificar «múltiplo de 4», porque una dimensión fija en esa columna sería
-  incorrecta; la concordancia de `dim` real la sigue imponiendo `vec_index`. `ValidateVector`
-  reparte el chequeo, no lo unifica, y su documentación no debe prometer más que eso.
+- **(a) `indexdb` va antes que `storage` en la fase 1.** `model` sigue primero (los otros dos
+  dependen de su tag), pero la conformance de `storage` solo puede exigir blobs una vez que
+  existe un backend que los soporta; al revés queda un test rojo esperando a otro repo.
+- **(b) `webtyp/jsvalue` no está en la tabla, y es deliberado.** Es dueño del códec
+  `[]byte` ↔ JS y **tiene un bug real de corrupción** (§8), pero `indexdb` no lo usa para
+  escribir: trae su propio `toJSValue`. Merece su propio plan; no bloquea a éste.
+- **(c) `vector-storage` es fase 0.** Congelar una referencia histórica en JS no desbloquea
+  ninguna persistencia.
+- **(d) El chequeo de dimensión lo posee `model`.** `vectordb` llama a `model.ValidateVector`
+  y borra su aritmética propia de `len(b)/4` — una verificación que la librería ya hace se
+  llama, no se re-implementa. Alcance exacto en `model/docs/PLAN.md`: sobre un blob
+  multi-vector solo verifica «múltiplo de 4»; la concordancia de `dim` la impone `vec_index`.
+- **(e) `webtyp/webgpu` salió del plan y `plans/nn.md` quedó obsoleto.** D4b borra la
+  necesidad de GPU. `plans/nn.md` está escrito para WGSL y hay que reescribirlo para kernels
+  CPU/WASM antes de crear el repo; el plan de WebGPU quedó en
+  [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva solo si el
+  benchmark de la fase 3 dice que WASM no alcanza.
 
 ## 6. Orden de construcción y puertas de fase
 
@@ -463,30 +397,12 @@ backend que los soporta (§5 nota (a)). `jsvalue` no participa (§5 nota (b)).
 
 Demostrado por `indexdb/tests/` bajo `gotest -tinygo`.
 
-**Restricción de diseño para el contrato de lote — el ejecutor no la va a descubrir solo:**
-una transacción de IndexedDB se **auto-comitea** en cuanto el event loop cede el control
-sin requests pendientes sobre ella. Un lote escrito como
-
-```go
-for _, row := range rows {          // WRONG: commits after the first row
-    req := store.Call("add", row)
-    await.Request(req)              // yields; the tx commits here
-}
-```
-
-falla en la segunda iteración con `TransactionInactiveError`. El contrato de lote debe
-emitir **todos** los `add()` primero y recién después esperar el evento `complete` **de la
-transacción**, no los `success` de cada request:
-
-```go
-for _, row := range rows {          // RIGHT: one tx, k requests
-    store.Call("add", row)          // fire, do not await
-}
-await.Event(tx, "complete", "error", "abort")
-```
-
-Eso implica que `await` necesita esperar un evento de la transacción, no sólo un request.
-Si esa primitiva no existe todavía, es parte del diff de la fase 1.
+**Restricción de diseño que el ejecutor no va a descubrir solo:** una transacción de
+IndexedDB se **auto-comitea** en cuanto el event loop cede sin requests pendientes, así que
+un lote que espera cada `add()` falla en la segunda fila con `TransactionInactiveError`. Hay
+que emitir todos los `add()` y esperar el `complete` **de la transacción**. El patrón, con el
+código malo y el bueno lado a lado, está en
+[`indexdb/docs/PLAN.md`](https://github.com/webtyp/indexdb/blob/main/docs/PLAN.md) §3.
 
 ### Fase 2 — Math, puerto y almacén (sin ML)
 `vector` y el **puerto** `embed` en paralelo, luego `vectordb`.
@@ -519,11 +435,10 @@ premisa del plan que no está medida (D4b), y condiciona todo lo que viene despu
 > corrido en navegador con `gotest`, con y sin SIMD128. Media jornada de trabajo.
 > Se registra el número, no una impresión.
 
-| Resultado | Qué se construye |
-|---|---|
-| **< 300 ms** | el nivel del medio de D5 es viable. Se sigue como está escrito abajo. |
-| **300 ms – 1 s** | viable con reservas: hay que decidir si se acepta esa latencia en el cuadro de búsqueda, o se baja al nivel estático de D5. |
-| **> 1 s** | el nivel del medio no sirve para el navegador. Se baja a la tabla estática (~32–64 MB, sin atención), `nn` no se construye, y se acepta el recall más bajo. |
+Los tres desenlaces —seguir como está escrito, decidir sobre la latencia, o bajar a la tabla
+estática— están tabulados con sus umbrales en
+[`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1. Ninguno es un bloqueo: el peor caso degrada a una
+opción ya escrita.
 
 El benchmark puede hacerse con un encoder de juguete de pesos aleatorios: mide el kernel, no
 la calidad. No hace falta elegir el modelo para correrlo.
@@ -549,7 +464,7 @@ coinciden, no hay un solo espacio vectorial y el requisito de no re-indexar nunc
 
 ### Fase 4 — Memoria del agente
 `agent` (contrato segregado + suite de conformance) → `webtyp/agentmemory` (implementación
-sobre `orm` + `ddl`, con `SearchKnowledge` semántico). Ver §7 y §7b.
+sobre `orm` + `ddl`, con `SearchKnowledge` semántico). Ver [`plans/agent.md`](plans/agent.md).
 
 **Orden dentro de la fase, y no es negociable:** la suite de conformance se escribe
 **primero**, antes de una línea de `agentmemory`. Deja de ser una puerta posterior y pasa a
@@ -571,7 +486,7 @@ ninguna bloqueante:
 
 - **Cuantización int8 en `vector`**, que corre el techo de ~100 k documentos de D0. Entra
   cuando exista un corpus que lo pida.
-- **BM25 léxico + fusión RRF**, que completa la mitad léxica que hoy cubre `LIKE` (§7.4).
+- **BM25 léxico + fusión RRF**, que completa la mitad léxica que hoy cubre `LIKE`.
 - **Un encoder sobre WebGPU**, solo si la puerta de la fase 3 midió que el forward pass en
   WASM no alcanza *y* se decidió no bajar al nivel estático. El plan archivado está en
   [`docs/history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva si ese caso
@@ -580,173 +495,12 @@ ninguna bloqueante:
 ## 7. Cambios que le pertenecen a este repositorio (`agent`)
 
 `webtyp/agent` es el **orquestador**: bucle ReAct, FSM, ventana de contexto y registro de
-herramientas. Coordina otras librerías; no implementa ninguna de sus capacidades. La
-decisión de fondo de esta sección — **la memoria sale de este repositorio** — se toma acá y
-no se vuelve a argumentar en los planes de abajo.
+herramientas. Coordina otras librerías; no implementa ninguna de sus capacidades.
 
-1. **Migración de module path** `github.com/tinywasm/agent` → `webtyp.com/agent`, junto con
-   las dependencias `github.com/tinywasm/{fmt,mcpserve,…}` de `go.mod`, que también siguen
-   apuntando al path viejo. Todos los repositorios de este plan ya migraron; `agent` no
-   puede depender de ellos mientras publica el path viejo sin confundir la actualización de
-   módulos dependientes de `gopush`.
-   **Va primero: prerrequisito de todo lo demás acá, y no depende de ninguna fase** — se
-   puede ejecutar hoy, en paralelo con la fase 0.
-
-2. **`memory.go` y `schema.go` salen a `webtyp/agentmemory`.** No se reescriben acá: se
-   mudan. `agent` conserva el contrato (`MemoryStore` y los tipos que lo atraviesan:
-   `Message`, `Episode`, `Knowledge`, `ToolLog`) y pierde `modernc.org/sqlite` del `go.mod`.
-   `webtyp/agentmemory` implementa ese contrato sobre `webtyp.com/orm` + `webtyp.com/ddl`
-   (ver **D7**), de modo que la misma implementación corra sobre SQL y sobre `indexdb`.
-
-   *Por qué mudar y no reescribir en el lugar:* hoy `Config.Memory` es un `MemoryStore`
-   inyectado y `DEFAULT_LLM_SKILL.md` §1 exige que «el struct `Agent` sostenga interfaces,
-   nunca implementaciones concretas». Esa regla se cumple en `agent.go` y **se rompe en el
-   `go.mod`**: quien embeba `agent` en un proyecto con Postgres, o en el navegador, igual
-   linkea un motor SQLite que nunca instancia. Es la **D** de SOLID verificada donde importa
-   — en el grafo de build, no en la prosa. Arte previo: `database/sql` define
-   `driver.Driver` y cada driver vive en su propio módulo; lo mismo hace `storage` con
-   `sqlt`/`postgres`/`indexdb`.
-
-   Se ejecuta **junto con el punto 1**, en una sola migración sobre los mismos archivos.
-
-3. **El esquema como valores `model.Definition` materializados por `webtyp.com/ddl`.**
-   `agentmemory` declara las `Definition` y `ddl` las convierte en DDL sobre un backend SQL
-   y en object stores sobre `indexdb`. Nadie escribe cadenas de DDL: `schema.go` desaparece
-   en la mudanza, no se porta.
-
-4. **`SearchKnowledge` gana un camino semántico** a través de `vectordb`. Es un cambio de
-   `agentmemory`, **no de `agent`**: la firma
-   `SearchKnowledge(ctx, query, sessionID string, limit int)` recibe **texto**, así que el
-   orquestador ya no necesita saber nada de vectores.
-
-   FTS5 léxico no existe fuera de SQLite: sobre `indexdb`, la mitad léxica de RRF espera al
-   índice BM25 de la fase 5. Hasta entonces es léxico por `LIKE` (soportado en
-   `indexdb/execute.go: matchLike` y en `storage.Like`) y semántico por vectores.
-
-5. **`Config` NO gana un `Embedder`.** El `embed.Embedder` se inyecta en el constructor de
-   `agentmemory`, que es quien lo usa:
-
-   ```go
-   mem, _ := agentmemory.New(agentmemory.Config{Conn: conn, Embedder: emb})
-   ag,  _ := agent.New(agent.Config{Memory: mem, LLMs: llms})
-   ```
-
-   `agent` no importa `webtyp.com/embed`. Esto revierte lo que anticipaba el estudio
-   histórico, y la razón es la misma del punto 2: un `Embedder` en `Config` obliga al
-   orquestador a saber que alguna implementación, en algún lado, hace búsqueda vectorial.
-
-6. **`MemoryStore` se segrega en cuatro contratos y se compone.** Ver §7b.
-
-7. Actualizar la lista de dependencias permitidas de `DEFAULT_LLM_SKILL.md`:
-   `modernc.org/sqlite` sale — **y no entra nada en su lugar**. `agent` queda sin
-   dependencias de almacenamiento. `webtyp.com/orm`, `webtyp.com/ddl`, `webtyp.com/vectordb`
-   y `webtyp.com/embed` son dependencias de `agentmemory`, no de `agent`.
-   Corregir también la línea de §1 que dice «`memory.go` — SQLite MemoryStore implementation
-   only»: ese archivo deja de existir acá.
-
-8. **`Message.TokenCount` tiene tres significados distintos según qué línea lo escribió, y
-   `prepareContext` los suma como si fueran la misma unidad.**
-
-   | Dónde | Qué guarda |
-   |---|---|
-   | `orchestrator.go:25` | `len(userQuery) / 4` — estimación por caracteres |
-   | `orchestrator.go:89` | `resp.TokensUsed` — el total del **turno entero** (prompt + completion), no el de ese mensaje. El comentario en el código dice `// Approximation?`, con signo de pregunta |
-   | `orchestrator.go:141` | `len(output) / 4` — estimación otra vez |
-   | `orchestrator.go:179` | `resp.TokensUsed` — mismo problema que :89 |
-
-   `context_window.go` suma esos valores y los compara contra
-   `MaxTokens × SummarizeAt` para decidir cuándo resumir. Es decir: **la decisión de resumir
-   se toma sobre una suma de unidades incompatibles**, y el error crece con la cantidad de
-   turnos, porque `TokensUsed` es acumulativo y se guarda una vez por turno.
-
-   No es una optimización pendiente: es un presupuesto que no mide lo que dice medir. El
-   arreglo mínimo es que `Message.TokenCount` tenga **un** significado documentado —los
-   tokens de ese mensaje— y que quien no pueda saberlo lo deje en cero en vez de rellenarlo
-   con una estimación de otra unidad. Un cero honesto es mejor que un número inventado,
-   porque el cero se puede detectar.
-
-   Va con el punto 1, porque toca los mismos archivos.
-
-9. Corregir `README.md`, que todavía describe el proyecto como "Autonomous AI Agent system
-   for `tinywasm`". Va con el punto 1.
-
-**Lo que este plan NO hace con `ContextWindowConfig`, y por qué.** `MaxTokens`,
-`SummarizeAt`, `MaxRecentMsgs` y `MaxEpisodes` configuran **una** estrategia de resumen
-cableada en `prepareContext` (resumir el 50% más viejo al cruzar el umbral). Extraerla a un
-contrato enchufable es tentador y el skill dice que **no**, todavía:
-
-- **Gate 5 — «¿qué borra este cambio?»** Nada. Habría una interfaz nueva y la misma única
-  implementación detrás.
-- **Gate 3 — el libro mayor.** «Conceptos +1 / −0» sin que ninguna otra fila mejore. Una
-  interfaz que sólo agrega tiene que justificarse a los gritos, y acá no hay un segundo
-  llamador que la pida.
-- **L — sustituibilidad.** Un contrato con una sola implementación no tiene con qué publicar
-  una suite de conformance, así que su sustituibilidad sería una promesa, no un hecho. Es
-  exactamente lo que la L prohíbe.
-
-La **O** sí queda rozada —agregar una segunda estrategia hoy obliga a editar
-`prepareContext`— pero la O se cobra cuando la segunda implementación existe, no antes. Si
-aparece, esto se reevalúa con el gate completo. Mientras tanto, lo que hay que arreglar es el
-punto 8, que es un defecto y no una decisión de diseño.
-
-## 7b. `MemoryStore`: cuatro contratos, un nombre compuesto
-
-`interfaces.go` declara hoy un solo contrato de once métodos que cubre cuatro dominios.
-Toda implementación debe proveer los once, y la búsqueda semántica sólo toca uno.
-
-Con una sola implementación eso costaba poco. Con dos —una SQL y una de navegador— la de
-navegador tendría que proveer `LogToolCall` y `GetToolLogs` aunque un agente en el browser
-rara vez los use, y la única salida sería un stub que devuelve `nil`. Eso es la **I** de
-SOLID: *una interfaz es tan ancha como la necesita su llamador más angosto*, y un stub que
-devuelve `nil` es exactamente el fallo silencioso que el harness prohíbe.
-
-```go
-// Each contract is what one collaborator of the orchestrator actually needs.
-type ConversationStore interface {
-	EnsureSession(ctx context.Context, sessionID string) error
-	AppendMessage(ctx context.Context, sessionID string, msg Message) error
-	GetMessages(ctx context.Context, sessionID string, limit int) ([]Message, error)
-	DeleteMessages(ctx context.Context, sessionID string, ids []string) error
-}
-
-type EpisodeStore interface {
-	SaveEpisode(ctx context.Context, sessionID, summary string, tokenCount int, fromID, toID string) error
-	GetEpisodes(ctx context.Context, sessionID string, limit int) ([]Episode, error)
-}
-
-type KnowledgeStore interface {
-	SaveKnowledge(ctx context.Context, sessionID, content, source string) error
-	SearchKnowledge(ctx context.Context, query, sessionID string, limit int) ([]Knowledge, error)
-}
-
-type ToolLogStore interface {
-	LogToolCall(ctx context.Context, sessionID, toolName, inputJSON, outputText, errText string, durationMS int64) error
-	GetToolLogs(ctx context.Context, sessionID, toolName string, limit int) ([]ToolLog, error)
-}
-
-// MemoryStore is the composed contract. Config.Memory keeps this type, so no
-// call site changes and there is still exactly one way to declare a full memory.
-type MemoryStore interface {
-	ConversationStore
-	EpisodeStore
-	KnowledgeStore
-	ToolLogStore
-}
-```
-
-Arte previo: `io.Reader`/`Writer`/`Closer` → `io.ReadWriteCloser`, y `fs.FS` +
-`fs.ReadDirFS` + `fs.StatFS`. La fila del libro mayor que nunca debe terminar positiva
-—«formas de hacer lo mismo»— queda en cero, porque `MemoryStore` sigue siendo el nombre
-compuesto y `Config.Memory` no cambia.
-
-Ganancia concreta para este plan: **el camino semántico sólo necesita `KnowledgeStore`**.
-Se puede construir y testear sin tocar mensajes, episodios ni bitácoras.
-
-**Consecuencia de la L de SOLID:** en cuanto exista una segunda implementación de
-`MemoryStore` —y este plan crea exactamente eso, SQL y navegador— el repositorio que **posee
-el contrato** debe publicar una suite de conformance, igual que `storage/conformance` y
-`ddl/conformance`. Esa suite es la puerta de la fase 4, y vive en `agent`, no en
-`agentmemory`.
+La decisión de fondo —**la memoria sale de este repositorio** a `webtyp/agentmemory`— se
+argumenta en **D7**. El diff concreto, la segregación de `MemoryStore` en cuatro contratos y
+los defectos a corregir de paso están en [`docs/plans/agent.md`](plans/agent.md), igual que
+el de cualquier otro repositorio de §5. Este archivo es el índice: no le pertenece código.
 
 ## 8. Riesgos
 
@@ -763,33 +517,19 @@ el contrato** debe publicar una suite de conformance, igual que `storage/conform
 | La arena excede la memoria del navegador pasados ~100 k docs | OOM | Techo documentado (D0), cuantización int8 en la fase 5 |
 | Vectores y texto se desincronizan en una escritura parcial | Resultados corruptos | Una sola transacción abarcando ambos stores; una fila de cabecera `dim`/`model_id` rechaza una arena que no corresponde al cargar |
 
-**Nota sobre `jsvalue`, porque una versión anterior de este plan lo tenía al revés.**
-El riesgo estaba escrito como "`jsvalue.ScanValue` podría no manejar `Uint8Array`". Los dos
-términos son incorrectos:
+**Nota sobre `jsvalue`, porque una versión anterior de este plan lo tenía al revés.** El
+riesgo decía «`ScanValue` podría no manejar `Uint8Array`»; los dos términos son incorrectos.
+**Leer ya funciona** (`decodeBytes` en `jsvalue/codec_wasm.go` hace `InstanceOf(Uint8Array)` +
+`CopyBytesToGo`). **Escribir está roto con certeza**: las tres rutas de encode —`ToJS`,
+`jsObjectWriter.Bytes`, `jsArrayWriter.Bytes`— hacen `string(val)`, y un Go string cruza a JS
+decodificado desde UTF-8, así que todo byte que no forme UTF-8 válido se sustituye por
+U+FFFD. Un float32 es binario arbitrario: la sustitución es la regla, no el borde, y vuelve
+**sin error y sin pánico**, que es peor que el crash de `js.ValueOf`.
 
-- **El lado de lectura ya funciona.** `ScanValue` → `ToGo` → `decodeBytes` (`jsvalue/codec_wasm.go`)
-  hace `InstanceOf(Uint8Array)` + `js.CopyBytesToGo`. Exactamente lo que D1 necesita.
-- **El lado de escritura está roto, y con certeza, no con probabilidad.** Las tres rutas de
-  encode convierten `[]byte` a `string`:
-  `ToJS` (`case []byte: return js.ValueOf(string(v))`), `jsObjectWriter.Bytes`
-  (`w.obj.Set(name, string(val))`) y `jsArrayWriter.Bytes`. Un Go string cruza a JS como
-  UTF-16 decodificado desde UTF-8: **cualquier byte que no forme UTF-8 válido se sustituye
-  por U+FFFD**. Un vector de float32 es binario arbitrario, así que la sustitución es la
-  regla, no el borde. El dato vuelve del round-trip con el largo y los valores cambiados,
-  **sin error y sin pánico** — que es peor que el crash de `js.ValueOf`, porque no se nota.
-- **`indexdb` ni siquiera usa esa ruta al escribir:** `execute.go: create` arma un
-  `map[string]any` y llama `store.Call("add", data)` directo, o sea `js.ValueOf` sobre los
-  valores crudos → pánico irrecuperable con `[]byte` (D1 §1).
-
-**Qué implica para este plan:** nada bloqueante. `indexdb/docs/PLAN.md` §1 no delega el
-encode en `jsvalue` — trae su propio `toJSValue`, que construye el `Uint8Array` directo. Es
-la decisión correcta: el driver es dueño de su propio borde. Y el decode sí delega en
-`jsvalue`, que funciona. `indexdb` queda íntegro sin tocar `jsvalue`.
-
-**Qué implica para `jsvalue`:** sigue roto para todo otro consumidor que encode un `[]byte`.
-El arreglo es mecánico — `Uint8ArrayClass.New(len(val))` + `js.CopyBytesToJS` en los tres
-writers — y el decode ya lo acepta, así que es compatible hacia atrás con lo ya escrito por
-la ruta string. Es un plan aparte, no una fase de éste. Anotado acá para que no se pierda.
+No bloquea este plan: `indexdb` trae su propio `toJSValue` y no delega el encode (§5 nota
+(b)). Sigue roto para cualquier otro consumidor, y el arreglo es mecánico —
+`Uint8ArrayClass.New(len)` + `CopyBytesToJS` en los tres writers, compatible hacia atrás
+porque el decode ya acepta ambos. Es un plan aparte; anotado acá para que no se pierda.
 
 ## 9. Decisiones abiertas
 

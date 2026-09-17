@@ -11,6 +11,8 @@ Autonomous AI Agent system for `tinywasm`.
 *   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — one item left, and it is a measurement,
     not a decision: how long a query forward pass takes in WASM. Decided items live in the
     plan that executes them, not there.
+*   [This repository's own plan](docs/plans/agent.md) — the `agent` diff: memory moves out,
+    `MemoryStore` gets segregated, the defects to fix along the way.
 *   [Plans for repositories not yet created](docs/plans/) — `tokenizer`, `weights`, `embed`,
     `nn`. All four wait on the phase-3 opening benchmark (PENDING_ITEMS P1); each moves to
     its own repository once created. `vector` and `vectordb` already moved.
