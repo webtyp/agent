@@ -286,28 +286,46 @@ Dos restricciones, en este orden:
    `bge-small-en-v1.5` son 33M parámetros y estaría en el catálogo de Cloudflare, o sea que
    habría sido la opción más barata de todas. Solo inglés, descartada.
 
-Los tres niveles de tamaño, con el multilingüe ya filtrado:
+Los niveles de tamaño, con el multilingüe ya filtrado. Los candidatos y sus cifras salen de
+[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md), que es el documento que manda
+sobre esta tabla:
 
-| Nivel | Params | Dims | Artifact int8 | Consulta en el navegador | Recall |
-|---|---|---|---|---|---|
-| Tabla estática (model2vec / "potion") | — | 128–256 | ~32–64 MB | microsegundos: lookup + mean-pool, sin atención | el más bajo |
-| **Transformer chico** — `multilingual-e5-small`, `paraphrase-multilingual-MiniLM-L12-v2` | ~118M | **384** | **~120 MB** | WASM sobre CPU, sin WebGPU (D4b) | intermedio, muy por encima del estático |
-| Transformer grande — `bge-m3`, `qwen3-embedding-0.6b` | 568–600M | 1024 | ~300–600 MB | WebGPU obligatorio; no entra en un isolate de 128 MB | el más alto |
+| Nivel | Modelo | Cómputo | Dims | ONNX int8 | Contexto | MTEB ML |
+|---|---|---|---|---|---|---|
+| Tabla estática | model2vec / "potion" | — | 128–256 | ~32–64 MB | — | el más bajo |
+| **Transformer chico** | **`granite-embedding-97m-multilingual-r2`** | **28,3M** | **384** | ~98 MB | **32 K** | **60.3** |
+| | `bekko-embedding-v1-a25m` | 24,9M | 384 | ~60 MB | 8 K | 57.5 |
+| | `bekko-embedding-v1-a8m` | **7,7M** | 384 | **~25 MB** | 8 K | 56.2 |
+| Transformer grande | `bge-m3`, `qwen3-embedding-0.6b` | 568–600M | 1024 | ~300–600 MB | 8–32 K | el más alto |
 
-**Elegido: el nivel del medio.** Un transformer multilingüe chico de 384 dims: atención real,
-unas 5× el recall de una tabla estática, a 2–4× su tamaño, y —según D4b— sin necesidad de
-GPU para el único trabajo que hace en el navegador. El nivel grande queda descartado porque
-rompe la premisa de un solo modelo: solo corre en el servidor, y eso obliga a un segundo
-modelo para la consulta.
+**Elegido: el nivel del medio**, con Granite 97M R2 como primer candidato. Atención real,
+muy por encima de una tabla estática, y —según D4b— sin GPU para el único trabajo que hace en
+el navegador. El nivel grande queda descartado porque rompe la premisa de un solo modelo:
+solo corre en el servidor, y eso obliga a un segundo modelo para la consulta.
 
-Por qué la tabla de embeddings domina el tamaño: un vocabulario multilingüe son ~250 k
-tokens, y a 384 dims la tabla sola son `250 000 × 384 × 1` = **96 MB en int8** (384 MB en
-fp32). Es la mayor parte de los ~120 MB. Por eso el artifact **se embarca cuantizado a int8
-con escalas por fila**, y se cachea en IndexedDB después de la primera descarga: se baja una
-vez por navegador, no una vez por sesión.
+**La columna «Cómputo» no es la de parámetros totales, y la distinción decide.** En estos
+modelos la mayor parte del peso es la tabla de embeddings —un lookup—, no capas a ejecutar:
+Granite 97M son 69,1M de tabla (180 k tokens × 384) más 28,3M de cuerpo. La descarga la
+gobierna el total; el forward pass de la consulta, solo el cuerpo. Por eso Granite y Bekko
+a25m cuestan casi lo mismo por consulta (28,3M contra 24,9M) aunque uno pese 98 MB y el otro
+60 MB.
 
-El modelo concreto y su tokenizador se cierran en
-[`docs/plans/embed.md`](plans/embed.md) §4, después del benchmark de apertura de la fase 3.
+Eso también confirma la calibración del benchmark de §6: 12 capas de 384 dims es exactamente
+la forma de Granite 97M tras su poda de 22 a 12 capas.
+
+**Descartado explícitamente para que no se re-proponga:** `multilingual-e5-small` (50.9,
+contexto de 512, y exige prefijos `query:`/`passage:` que habría que replicar idénticos en
+los tres targets de D4 — superficie extra para el defecto más caro del diseño) y
+`paraphrase-multilingual-MiniLM-L12-v2` (36.6, obsoleto en recuperación). Ambos figuraban
+como candidatos en una versión anterior de este documento.
+
+**La elección final no se hace por esta tabla.** El MTEB multilingüe es un promedio sobre 18
+idiomas y nosotros tenemos uno; un modelo de 60.3 promediado puede ser peor en español que
+uno de 57.5. Se decide con dos mediciones —el benchmark de cómputo de §6 y un recall@10 sobre
+corpus real en español— especificadas en
+[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5. Los tres candidatos son de
+384 dims, así que cambiar entre ellos no toca `vector`, `vectordb` ni el códec: solo
+re-embeber el corpus de prueba.
 
 ### D6 — Licencias
 
@@ -509,6 +527,11 @@ premisa del plan que no está medida (D4b), y condiciona todo lo que viene despu
 
 El benchmark puede hacerse con un encoder de juguete de pesos aleatorios: mide el kernel, no
 la calidad. No hace falta elegir el modelo para correrlo.
+
+Corriéndolo con tres tamaños de cuerpo se cubren los tres candidatos de D5 de una sola vez:
+**28,3M** (Granite 97M), **24,9M** (Bekko a25m) y **7,7M** (Bekko a8m). Si el de 28,3M no
+pasa, quedan los Bekko; si no pasa el de 7,7M, se cae el nivel entero y hay que bajar a la
+tabla estática.
 
 **Construcción, si la puerta abre:** `tokenizer` y `weights` en paralelo, luego `nn`, luego
 el adaptador de `embed` que los compone. `nn` es el que subió desde la fase 5 (D4b), en su

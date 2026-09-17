@@ -1,6 +1,6 @@
 ---
 DOC: "Lo que sigue sin decidir"
-STATUS: 1 pendiente — una medición, no una decisión
+STATUS: 2 mediciones pendientes, ninguna decisión bloqueada
 RELATED: docs/PLAN.md
 ---
 
@@ -30,6 +30,10 @@ en navegador con `gotest`, con y sin SIMD128.
 Se puede hacer con un encoder de juguete de pesos aleatorios: mide el kernel, no la calidad,
 así que **no hace falta elegir el modelo para correrlo**. Media jornada.
 
+Corriéndolo con tres tamaños de cuerpo se cubren de una vez los tres candidatos de D5:
+**28,3M** (`granite-embedding-97m-multilingual-r2`), **24,9M** (`bekko-v1-a25m`) y **7,7M**
+(`bekko-v1-a8m`). Ver [`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
+
 ## Por qué decide tanto
 
 El navegador solo embebe **consultas**, no documentos (`PLAN.md` §1 y D4b). El cómputo de un
@@ -52,6 +56,20 @@ diseño es holgado, en el otro no sirve.
 
 Los tres están cubiertos por el plan, así que ninguno es un bloqueo: el peor caso degrada a
 una opción escrita, no a una pregunta abierta.
+
+## P1b — La segunda medición: recall@10 en español, sobre corpus real
+
+El benchmark de arriba dice **si corre**. No dice **cuál elegir**. El MTEB multilingüe es un
+promedio sobre 18 idiomas y nosotros tenemos uno, así que un modelo de 60.3 promediado puede
+ser peor en español que uno de 57.5 — y ninguna fuente desglosa por idioma.
+
+La medición que elige: 200–500 documentos representativos en español, 30–50 consultas reales
+con el documento correcto anotado a mano, y recall@10 + MRR por candidato. Un día de trabajo.
+Especificada en [`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
+
+Es barata porque los tres candidatos son de 384 dims: `vector`, `vectordb`, el arena y el
+códec son idénticos para los tres, así que cambiar de candidato es re-embeber el corpus de
+prueba y nada más.
 
 ## Antes de correrlo
 

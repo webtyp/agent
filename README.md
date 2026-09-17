@@ -23,8 +23,12 @@ Autonomous AI Agent system for `tinywasm`.
 *   [LLM Skill Reference](docs/DEFAULT_LLM_SKILL.md) - Mandatory engineering rules for LLMs working on this project.
 
 ### Research
+*   [Small embedding models](docs/SMALL_MODEL_FOR_EMBEDING.md) - **consolidated**: the 384-dim
+    multilingual candidates (Granite 97M R2, Bekko a25m/a8m), what "active parameters"
+    actually means for browser compute, and the two measurements that pick the winner.
+    This document governs PLAN D5.
 *   [Cloudflare Workers AI](docs/CLOUDFLARE_AI_WORKER.md) - embedding and LLM model costs on
-    Workers AI; the source for the `bge-m3` option in PENDING_ITEMS P1.
+    Workers AI; why the catalogue was ruled out as the model source (PLAN D4).
 
 ### History
 *   [SQLite Memory Architecture](docs/history/MEMORY_SQLITE.md) - **superseded**. The SQLite +

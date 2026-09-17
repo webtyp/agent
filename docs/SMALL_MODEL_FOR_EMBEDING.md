@@ -1,4 +1,162 @@
-fecha de investigacion: 2026-09-17
+---
+DOC: "Elección del modelo de embeddings — investigación consolidada"
+FECHA_INVESTIGACION: 2026-09-17
+STATUS: consolidado; la elección final depende de dos mediciones (ver §5)
+RELATED: docs/PLAN.md D5, docs/PENDING_ITEMS.md P1
+---
+
+> Las §§1–6 son la consolidación de la investigación en línea que está al final del archivo
+> (§7, sin editar). Dónde un dato viene de esa investigación y dónde de una verificación
+> propia está marcado explícitamente: **[inv]** = de la investigación, sin verificar acá;
+> **[calc]** = aritmética hecha sobre esos datos; **[ver]** = verificado contra el código o
+> la documentación de la plataforma.
+
+# 1. Qué cambia respecto del plan
+
+`PLAN.md` **D5** propone hoy `multilingual-e5-small` y `paraphrase-multilingual-MiniLM-L12-v2`
+como candidatos. La investigación los deja como **los dos peores de la lista**: el primero
+saca 50.9 en MTEB multilingüe retrieval y el segundo 36.6, contra 60.3 del líder actual
+**[inv]**. `paraphrase-multilingual-MiniLM-L12-v2` está directamente descrito como obsoleto
+para recuperación.
+
+Lo que **no** cambia, y conviene decirlo porque es lo que valida el diseño: las tres familias
+nuevas son de **384 dimensiones** y ~12 capas, que es exactamente el presupuesto que D0 fijó
+y el que el benchmark de apertura de la fase 3 mide. El plan no se mueve; se mueve la fila de
+candidatos.
+
+# 2. Comparación consolidada
+
+Las dos investigaciones coinciden en los números y no se contradicen en ninguno **[inv]**:
+
+| Modelo | Params totales | Params de cómputo | Dims | Contexto | ONNX int8 | MTEB ML retr. | Licencia | MRL |
+|---|---|---|---|---|---|---|---|---|
+| **granite-embedding-97m-multilingual-r2** | 97M | **28.3M** | 384 | **32 K** | ~98 MB | **60.3** | Apache 2.0 | no |
+| **bekko-embedding-v1-a25m** | ~60M [calc] | **24.9M** | 384 | 8 K | **~60 MB** | 57.5 | MIT | **sí** |
+| **bekko-embedding-v1-a8m** | ~25M [calc] | **7.7M** | 384 | 8 K | **~25 MB** | 56.2 | MIT | **sí** |
+| multilingual-e5-small | 118M | 21.6M | 384 | 512 | ~118 MB | 50.9 | MIT | no |
+| paraphrase-multilingual-MiniLM-L12-v2 | 118M | 22.0M | 384 | 512 | ~150 MB | 36.6 | Apache 2.0 | no |
+| granite-embedding-311m-multilingual-r2 | 311M | 110M | 768→384 | 32 K | ~300 MB | 63.8 | Apache 2.0 | sí |
+
+# 3. El dato que ninguna de las dos investigaciones explota, y que para nosotros decide
+
+Ambas mencionan que Granite 97M tiene «28.3M parámetros activos» de 97M totales, y lo dejan
+ahí. **ModernBERT no es un MoE**, así que «activos» no significa lo que significa en un
+Mixtral. La aritmética lo aclara **[calc]**:
+
+```
+tokenizador de 180 000 tokens × 384 dims = 69,1M  ← tabla de embeddings (lookup)
+                          cuerpo del transformer = 28,3M  ← cómputo real
+                                            total ≈ 97,4M  ✓ coincide con los 97M
+```
+
+O sea: **el 71% del modelo es una tabla de búsqueda, no capas que haya que ejecutar.** Y eso
+parte el presupuesto del navegador en dos ejes independientes, que hasta ahora estábamos
+tratando como uno:
+
+| Eje | Lo que lo determina | A quién le duele |
+|---|---|---|
+| **Descarga** (~98 MB) | tabla + cuerpo | una vez por navegador, cacheado en IndexedDB (D5) |
+| **Cómputo por consulta** | **solo los 28,3M del cuerpo** | cada búsqueda, y es lo que mide el benchmark de la fase 3 |
+
+La consecuencia práctica: la diferencia de cómputo entre Granite 97M (28,3M) y Bekko a25m
+(24,9M) es de un 14%, aunque uno pese 98 MB y el otro 60 MB. **No son 97M contra 25M
+compitiendo por la CPU — son 28M contra 25M.** Elegir Bekko a25m para «aliviar el forward
+pass» compra muy poco; lo que compra es 38 MB menos de descarga.
+
+El que sí cambia el cómputo de verdad es **a8m: 7,7M**, unas 3,7× menos trabajo que Granite.
+
+Esto también confirma que la especificación del benchmark de `PLAN.md` §6 —20 tokens, 12
+capas, 384 dims— está bien calibrada: Granite es justamente 12 capas de 384 tras la poda
+desde 22 **[inv]**.
+
+# 4. Lo que no puedo verificar, y hay que tenerlo presente
+
+Sin conexión no puedo confirmar ninguno de estos números. Tres advertencias concretas:
+
+1. **Mi conocimiento llega hasta mayo de 2026.** Granite R2 se publicó abril/mayo 2026, justo
+   en el borde; **Bekko no lo conozco en absoluto.** Los datos de §2 son de tu investigación,
+   no de mi verificación.
+2. **La aritmética de Granite cierra sola** (69,1 + 28,3 ≈ 97), lo que es una buena señal
+   sobre la calidad de esos datos. Los de Bekko no traen desglose de vocabulario, así que sus
+   totales de §2 son inferencia mía a partir del peso ONNX **[calc]**, no dato publicado.
+3. **Bekko es de un proyecto chico y nuevo** (`hotchpotch` en HF), contra IBM detrás de
+   Granite. Para un sistema clínico que tiene que funcionar años, la procedencia pesa — no
+   como argumento técnico, sino de mantenimiento. A favor de Bekko: licencia MIT y ya existe
+   una demo corriéndolo en el navegador **[inv]**, que es evidencia directa de lo que nos
+   importa.
+
+# 5. Cómo elegir con datos propios, no con el promedio de MTEB
+
+**El MTEB multilingüe es el número en el que menos hay que confiar para este caso**, y es el
+que ambas investigaciones usan para ordenar. Es un promedio sobre 18 idiomas. Nosotros
+tenemos uno: español. Un modelo de 60.3 promediado puede ser peor en español que uno de 57.5
+— el promedio no lo dice, y ninguna de las dos fuentes desglosa por idioma.
+
+Dos mediciones, en este orden. La primera descarta, la segunda elige.
+
+### Medición 1 — ¿corre? (la puerta de la fase 3, ya en el plan)
+
+Forward pass de 20 tokens, 12 capas, 384 dims, en TinyGo `js/wasm`, con y sin SIMD128.
+Con pesos aleatorios: mide el kernel, no la calidad.
+
+Ahora se puede correr **una vez por cada tamaño de cuerpo** y cubrir los tres candidatos:
+
+| Cuerpo | Cubre | Si tarda > 1 s |
+|---|---|---|
+| 28,3M | Granite 97M | se cae Granite, quedan los Bekko |
+| 24,9M | Bekko a25m | se cae también a25m |
+| 7,7M | Bekko a8m | se cae todo el nivel; hay que bajar a tabla estática |
+
+Media jornada, y no necesita elegir modelo para correrse.
+
+### Medición 2 — ¿sirve en español? (la que realmente elige)
+
+Con los sobrevivientes de la medición 1, sobre **tu corpus real**:
+
+- 200–500 documentos representativos en español, troceados como los trocearía el sistema.
+- 30–50 consultas reales, con el documento correcto anotado a mano.
+- Indexar con cada candidato y medir **recall@10 y MRR**, por candidato.
+
+Eso es un día de trabajo y produce el único número que importa. Un modelo que gana MTEB por
+2,8 puntos y pierde recall@10 en tu corpus es el modelo equivocado, por definición.
+
+**Aprovechá que los tres son de 384 dimensiones:** el índice, el arena, el códec y todo
+`vector`/`vectordb` son idénticos para los tres. Cambiar de candidato es re-embeber el corpus
+de prueba, nada más. Por eso esta medición es barata y por eso vale hacerla con datos reales
+en vez de decidir por tabla.
+
+# 6. Qué recomendaría, y con qué grado de confianza
+
+**Orden de prueba: Granite 97M R2 → Bekko a25m → Bekko a8m.** Y el argumento no es el MTEB.
+
+**Granite primero**, por tres razones que no dependen del promedio de benchmark:
+
+1. **Contexto de 32 K contra 8 K y 512.** Es irrelevante para el navegador —las consultas son
+   de 20 tokens— pero manda del lado backend, que es donde se embeben los documentos. Con 512
+   tokens (`e5`) habría que trocear agresivamente y cada corte es una idea partida al medio.
+   Con 32 K, un documento entero suele entrar en un chunk.
+2. **Es simétrico**: no necesita los prefijos `query:` / `passage:` que exige la familia e5
+   **[inv]**. Un prefijo obligatorio es una regla que hay que replicar idéntica en los tres
+   targets de D4, y una discrepancia ahí produce vectores de distinto espacio sin ningún
+   error visible. Menos superficie para el defecto más caro que tiene este diseño.
+3. **Apache 2.0 e IBM detrás.** Mantenimiento previsible para un sistema que tiene que durar.
+
+**Bekko a25m como segunda**, y su argumento fuerte no es el tamaño de cómputo —vimos en §3
+que son 24,9M contra 28,3M, casi lo mismo— sino **Matryoshka**: permite truncar 384→256→128
+y recortar la arena de D0 a la mitad o a un cuarto sin cambiar de modelo. Si el techo de
+~100 k documentos aprieta, eso vale más que 2,8 puntos de MTEB. Granite 97M no lo ofrece.
+
+**Bekko a8m** es el único que cambia el orden de magnitud del cómputo (7,7M). Es el plan B
+real si la medición 1 sale mal, y es mucho mejor opción que bajar a una tabla estática:
+56.2 contra el recall bastante más bajo de un model2vec.
+
+**Confianza:** alta en el razonamiento de §3 y §5, que es aritmética y método. **Baja en los
+números de §2**, que no pude verificar. Si algún dato de la tabla resulta estar mal, lo que
+cambia es el orden de prueba; el método de las dos mediciones se mantiene igual.
+
+---
+
+# 7. Investigación original, sin editar
 
 # pregunta:
 cuel es el mejor modelo para embedin de 384 dimenciones multiliguue o inges español, o el mejor para ambos idiomas (ing, spa) pero con mejor rendimiento,probado ya en produccion..la idea es hacer embeding en el navegador directamente (no me interza codigo, ni libreias al respecto eso es otroa apartado) solo nos interaz el mejor modelo pqueño acteul para ese proposito.(que se pudea usar con codgo libre)
