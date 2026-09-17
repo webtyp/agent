@@ -8,11 +8,11 @@ Autonomous AI Agent system for `tinywasm`.
 ### Current Plan
 *   [**PLAN.md**](docs/PLAN.md) — **master index**: browser-native semantic search on IndexedDB.
     Architecture, shared contracts, build order and phase gates across every repository involved.
-*   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — the two decisions still open
-    (vector-space reuse, string-slice fields) plus open questions. Decided items live in
-    the plan that executes them, not there.
+*   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — one item left, and it is a measurement,
+    not a decision: how long a query forward pass takes in WASM. Decided items live in the
+    plan that executes them, not there.
 *   [Plans for repositories not yet created](docs/plans/) — `tokenizer`, `weights`, `embed`,
-    `webgpu`, `nn`. These five are on hold until PENDING_ITEMS P1 is decided; each moves to
+    `nn`. All four wait on the phase-3 opening benchmark (PENDING_ITEMS P1); each moves to
     its own repository once created. `vector` and `vectordb` already moved.
 
 ### Core Guides
@@ -31,6 +31,9 @@ Autonomous AI Agent system for `tinywasm`.
     `sqlite-vec` study; kept for its memory categorisation and RRF reasoning, which the current
     plan reuses.
 *   [Isomorphic Compatibility Refactor](docs/history/ISOMORPHIC-COMPATIBILITY.md) - executed.
+*   [WebGPU Encoder](docs/history/WEBGPU_ENCODER.md) - **archived, not cancelled**. The
+    browser only embeds queries, which runs on CPU/WASM (PLAN D4b), so no GPU is needed.
+    Unarchive only if the phase-3 benchmark says otherwise.
 *   [Last Plan Executed](docs/LAST_PLAN_EXECUTED.md) - replace `mcpserve` with `mcp` in tests.
 
 ### Architecture Diagrams

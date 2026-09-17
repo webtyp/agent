@@ -15,9 +15,9 @@ REVIEWER: none
 > modificaciones. Los planes de los repositorios que **ya existen** están en su
 > `docs/PLAN.md` y §5 enlaza a ellos.
 >
-> **Los cinco repositorios de las fases 3 y 5 no se crean todavía**: `PENDING_ITEMS.md` P1
-> decide si `tokenizer`, `weights`, `embed`, `webgpu` y `nn` existen. Crear un repositorio
-> que una decisión abierta puede borrar es deuda, no adelanto.
+> **`tokenizer`, `weights`, `embed` y `nn` se crean recién cuando la fase 3 abra**, y su
+> puerta de apertura es un benchmark (§6). Crear un repositorio antes de saber si su diseño
+> es viable es deuda, no adelanto.
 >
 > **Nota de idioma:** la prosa va en español. Los bloques de código se mantienen con
 > comentarios en inglés porque son código literal destinado a los repositorios, cuyos
@@ -27,11 +27,31 @@ REVIEWER: none
 
 ## 1. Objetivo
 
-Ejecutar búsqueda semántica **enteramente en el navegador**: generación de embeddings,
-almacenamiento de vectores y recuperación por k-vecinos más cercanos, sin viaje al
-servidor en tiempo de consulta y sin dependencia de ninguna librería JavaScript. La
-persistencia es `webtyp.com/indexdb`, extendido donde su API actual no alcanza a expresar
-el problema.
+**Búsqueda semántica offline total en el navegador.** El corpus —texto y vectores— vive en
+IndexedDB, en la máquina del usuario, y la consulta no sale de ahí. Sin dependencia de
+ninguna librería JavaScript. La persistencia es `webtyp.com/indexdb`, extendido donde su API
+actual no alcanza a expresar el problema.
+
+El flujo, que es lo que gobierna todo el resto del documento:
+
+| Momento | Dónde ocurre | ¿Necesita red? |
+|---|---|---|
+| Subir un documento | el backend tokeniza, embebe los chunks y **devuelve los vectores al cliente** | **sí** |
+| Guardar | texto + vectores quedan en IndexedDB (D2) | no |
+| **Buscar** | el navegador embebe la consulta y hace el kNN sobre la arena local | **no — offline total** |
+
+El backend no está ahí porque el navegador no pueda embeber: está porque es la máquina rápida
+y no hace esperar al usuario mientras se procesan diez chunks de 8 000 tokens. La data
+termina siempre del lado del cliente.
+
+**La consecuencia que ordena todo el plan:** si la búsqueda es offline, el navegador necesita
+el modelo — no para los documentos, para la **consulta**. Y el vector de la consulta tiene
+que caer en el mismo espacio que los de los documentos, así que tienen que ser **los mismos
+pesos**. No hay forma de esquivarlo: un transformer que embebe 20 tokens tiene los mismos
+parámetros que uno que embebe 8 000; la entrada corta baja el cómputo, no el tamaño.
+
+Por eso el modelo se elige por el presupuesto del navegador (D5), y por eso hay **una sola
+implementación en Go** corriendo en tres targets (D4).
 
 El `MemoryStore` del agente se reescribe una sola vez contra `webtyp.com/orm`, de modo que
 el mismo código de memoria corra sobre un backend SQL (servidor) y sobre IndexedDB
@@ -64,38 +84,39 @@ sube un nivel: en vez de "el mismo motor en todas partes", pasa a ser "el mismo 
 ## 3. Arquitectura
 
 ```
-                      ┌──────────────────────────────────┐
-                      │  agent — orquestador             │
-                      │  contrato MemoryStore, 0 storage │
-                      └────────────────┬─────────────────┘
-                      ┌────────────────▼─────────────────┐
-                      │  agentmemory                     │  implementa el
-                      │  sobre orm + ddl                 │  contrato
-                      └────────────────┬─────────────────┘
-                                       │
-                      ┌────────────────▼─────────────────┐
-                      │  vectordb                        │  documentos, kNN,
-                      │  el almacén                      │  filtros, LRU, cuota
-                      └──┬───────────┬──────────────┬────┘
-                         │           │              │
-      ┌──────────────────▼───┐  ┌────▼──────┐  ┌────▼──────────────────┐
-      │  vector              │  │  embed    │  │  orm  /  ddl          │
-      │  math, arena, top-k, │  │  PUERTO   │  │  DML agnóstico + DDL  │
-      │  códec LE            │  │  (fase 2) │  └────┬─────────────┬────┘
-      └──────────────────────┘  └─────▲─────┘       │             │
-                                      │             │             │
-                   adaptador estático (fase 3)      │             │
-              ┌───────────────┬───────┘             │             │
-      ┌───────▼──────────┐ ┌──▼──────────────┐ ┌────▼─────────┐ ┌─▼─────────────┐
-      │  tokenizer       │ │  weights        │ │  storage     │ │ storage       │
-      │  texto → ids     │ │  artifact + IDB │ │  + indexdb   │ │ + sqlt/postgr │
-      └──────────────────┘ │  caché          │ │  navegador   │ │ servidor      │
-                           └──┬──────────────┘ └──────────────┘ └───────────────┘
-     ╔════════════════════════▼═══════════════════════════════╗
-     ║  FASE 5 — solo si el recall de la fase 3 no alcanza     ║
-     ║    webgpu  (navigator.gpu)  →  nn  (encoder en WGSL)    ║
-     ║    → un segundo adaptador embed, misma interfaz         ║
-     ╚═════════════════════════════════════════════════════════╝
+   NAVEGADOR (TinyGo → WASM)                    BACKEND (Go nativo) / WORKER (WASM)
+   ─────────────────────────                    ───────────────────────────────────
+   ┌──────────────────────────────────┐
+   │  agent — orquestador             │
+   │  contrato MemoryStore, 0 storage │
+   └────────────────┬─────────────────┘
+   ┌────────────────▼─────────────────┐
+   │  agentmemory                     │  implementa el contrato sobre orm + ddl
+   └────────────────┬─────────────────┘
+   ┌────────────────▼─────────────────┐
+   │  vectordb    documentos, kNN,    │
+   │              filtros, LRU, cuota │
+   └──┬──────────┬──────────────┬─────┘
+      │          │              │
+ ┌────▼──────┐ ┌─▼──────────┐ ┌─▼───────────────┐
+ │  vector   │ │  embed     │ │  orm  /  ddl    │
+ │  arena,   │ │  puerto +  │ │  DML + DDL      │
+ │  top-k,   │ │  adaptador │ └─┬───────────┬───┘
+ │  códec LE │ └─┬────────┬─┘   │           │
+ └───────────┘   │        │     │           │
+        ┌────────┘        │     │           │
+ ┌──────▼─────┐ ┌─────────▼──┐ ┌▼─────────┐ ┌▼──────────────┐
+ │ tokenizer  │ │ nn         │ │ storage  │ │ storage       │
+ │ texto→ids  │ │ encoder,   │ │ +indexdb │ │ +sqlt/postgres│
+ └──────┬─────┘ │ CPU/WASM   │ └──────────┘ └───────────────┘
+        │       └─────┬──────┘
+        │       ┌─────▼──────┐
+        └───────│ weights    │  artifact int8 + caché IDB
+                └────────────┘
+
+   El navegador embebe CONSULTAS (~20 tokens, D4b).
+   El backend embebe DOCUMENTOS (chunks de hasta 8 K).
+   MISMO código Go, MISMOS pesos → un solo espacio vectorial (D4).
 ```
 
 Cada flecha es una dependencia de compilación. No hay ciclos y ningún repositorio depende
@@ -106,7 +127,7 @@ tenía mal:
 
 - **`vectordb` importa `embed`.** No el adaptador — sólo la interfaz `embed.Embedder`
   (`plans/vectordb.md` §3 y `Config.Embedder`). Por eso el **puerto** `embed` es fase 2 y
-  el **adaptador estático** es fase 3. Ver §6.
+  el adaptador es fase 3. Ver §6.
 - **`indexdb` encoda sus propios bytes.** Lee por `jsvalue` (que funciona) y escribe por su
   propio `toJSValue` (porque el writer de `jsvalue` corrompe binario). Ver §5 nota (b) y §8.
 
@@ -115,20 +136,19 @@ tenía mal:
 Se deciden **acá**, una sola vez. Los planes por repositorio referencian esta sección en
 lugar de volver a argumentarla.
 
-### D0 — Dimensión de trabajo: 256. Toda cifra de este plan se deriva de acá.
+### D0 — Dimensión de trabajo: 384. Toda cifra de este plan se deriva de acá.
 
-> **Condicionada a O1.** Si el corpus se reusa desde el servidor con `@cf/baai/bge-m3`, la
-> dimensión pasa a **1024** y las cifras de D1 y D5 se cuadruplican. Ver
-> [`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1 antes de fijar nada acá.
+La dimensión es la única constante que atraviesa las decisiones siguientes, así que tiene un
+solo dueño: esta línea. **`Dim = 384`**, que es la dimensión nativa de los transformers
+multilingües chicos de D5 y la que usan los benchmarks de `vector`.
 
-La dimensión es la única constante que atraviesa las seis decisiones siguientes, así que
-tiene un solo dueño: esta línea. Supuesto de trabajo hasta que O1 cierre: **`Dim = 256`**.
+Consecuencias aritméticas, para no repetirlas en cada sección: la arena residente son
+`N × 384 × 4` = **1,5 KB por documento**. 10 000 documentos son 15 MB; 100 000 son 150 MB, y
+ahí la cuantización int8 (÷4) se vuelve obligatoria.
 
-`vector` y `vectordb` son agnósticos de la dimensión y se **testean a 384**, a propósito:
-384 es el peor caso creíble y el número que usan los benchmarks de referencia de la
-industria, así que el margen medido es conservador. Cuando este plan cita memoria o peso
-de artifact, dice a qué dimensión corresponde. Cuando O1 cierre, se actualiza **esta línea
-y nada más**.
+`vector` y `vectordb` son agnósticos de la dimensión — 384 es el valor de configuración, no
+una constante compilada. Si D5 termina eligiendo un modelo de otra dimensión, se actualiza
+**esta línea y nada más**.
 
 ### D1 — Un vector es `[]byte` en disco y una porción de una arena compartida en memoria
 
@@ -145,8 +165,8 @@ Justificación, en el orden que importa:
    `[]float32`**, y hace pánico con cualquier otra cosa. Bajo TinyGo
    `GOOS=js GOARCH=wasm` **no hay `recover()`** (`tx.go:getStore` ya lo documenta en ese
    mismo repositorio), así que ese pánico es un crash irrecuperable, no un valor de error.
-   Codificar un vector de 256 dims como `[]any` para sortearlo cuesta 256 allocations
-   boxeadas y ~2 KB de heap JS por documento, contra 1024 bytes de datos reales. Inviable.
+   Codificar un vector de 384 dims como `[]any` para sortearlo cuesta 384 allocations
+   boxeadas y ~3 KB de heap JS por documento, contra 1536 bytes de datos reales. Inviable.
 
 2. **`js.CopyBytesToJS` / `js.CopyBytesToGo` son las únicas primitivas de copia masiva, y
    TinyGo implementa ambas.** Son un `memcpy` entre la memoria lineal WASM y un
@@ -175,10 +195,8 @@ Justificación, en el orden que importa:
    producto punto simple. Esto elimina un `sqrt` y una división por documento por consulta.
    (El original en JS precomputa la magnitud pero igual divide N veces por búsqueda.)
 
-**Costo, dicho con honestidad:** la memoria residente es `N × Dim × 4` bytes. A 256 dims
-(D0), 10 000 documentos son 10 MB y 100 000 son 100 MB. A 384 dims son 15 MB y 150 MB
-respectivamente. En cualquiera de los dos casos, los ~100 k documentos son donde la
-cuantización int8 (÷4) se vuelve obligatoria. La cuantización es **fase 5**, no v1.
+**Costo:** ya está en D0 — 1,5 KB por documento, con el techo en ~100 k. La cuantización
+int8 que corre ese techo es trabajo posterior a la v1; ver §6, Fase 5.
 
 ### D2 — Los vectores se persisten por shards; los documentos, por fila
 
@@ -208,59 +226,88 @@ inserción por lote.
 
 ### D3 — IndexedDB no puede indexar un vector. Toda consulta kNN es un barrido completo.
 
-Ningún árbol B sobre un espacio de 256 dimensiones ayuda. Esto no es una limitación a
+Ningún árbol B sobre un espacio de 384 dimensiones ayuda. Esto no es una limitación a
 sortear en v1; es la forma del problema. Por eso el diseño minimiza el **costo por
 candidato** (D1, D2) en vez de intentar evitar candidatos. Los índices aproximados
 (HNSW/IVF) quedan explícitamente fuera de alcance hasta que exista un corpus que los
 necesite.
 
-### D4 — Los embeddings se producen en el navegador, en dos fases detrás de un mismo puerto
+### D4 — Un modelo, una implementación en Go, tres targets
 
-`embed.Embedder` es el contrato único. Se embarcan dos implementaciones detrás de él:
+`embed.Embedder` es el contrato único. Detrás hay **una sola implementación**, no dos:
+`tokenizer` + `weights` + el grafo del encoder en `nn`, todo en Go.
 
-- **Fase 3 — embeddings estáticos.** Una tabla de embeddings de tokens destilada (familia
-  model2vec / "potion"): tokenizar, buscar, promediar (mean-pool), normalizar. Sin
-  atención, sin forward pass, sin GPU. Go puro, compatible con TinyGo hoy. Peso del
-  artifact: ver D5 — **no** lo repitas acá. La calidad de recuperación queda por debajo de
-  un encoder completo pero es sólida, y entrega un pipeline funcionando de punta a punta
-  antes de que exista una sola línea de código de GPU.
-- **Fase 5 — encoder transformer sobre WebGPU.** Inferencia completa de
-  sentence-transformer vía `navigator.gpu`, en Go + WGSL de principio a fin.
+Lo que cambia entre entornos es el target de compilación, no el código ni los pesos:
 
-Ambos corren enteramente en el navegador. La fase 5 es un **adaptador nuevo**, no una
-reescritura: `vectordb`, `indexdb`, `storage` y `model` quedan intactos.
+| Target | Cómo compila | Qué embebe | Presupuesto |
+|---|---|---|---|
+| Navegador | TinyGo → WASM | **consultas** (~20 tokens) | descarga del artifact + un forward pass |
+| Backend | Go nativo | **documentos** (chunks de hasta 8 K) | la CPU del servidor |
+| Worker de Cloudflare | TinyGo → WASM | documentos, en despliegues en la nube | 128 MB por isolate |
 
-El **puerto** `embed.Embedder` (la interfaz, sin implementación, sin dependencias) se
-publica en la **fase 2**, porque `vectordb` lo importa. El adaptador estático llega en la
-fase 3. `plans/embed.md` divide su propio trabajo por esa línea.
+Eso es lo que hace que los vectores sean comparables **para siempre y entre instalaciones**:
+no hay dos modelos que puedan divergir, porque no hay dos implementaciones.
 
-### D5 — El español es una restricción de selección, y domina el tamaño del modelo
+**Lo que esto elimina:** no hace falta Ollama ni el catálogo de Workers AI. Se evaluaron
+(`docs/CLOUDFLARE_AI_WORKER.md`) y el problema es que ningún modelo del catálogo es a la vez
+multilingüe y chico: `bge-m3` y `qwen3-embedding-0.6b` son de ~600M parámetros, así que
+entrarían en el backend pero no en el navegador ni en un isolate de 128 MB. Un modelo que
+solo corre en el servidor obliga a un segundo modelo para la consulta, y con eso se pierde
+el espacio vectorial común, que es justamente el requisito.
 
-`docs/EFFICIENT_SLM.md` pone el español como requisito de primer orden — **confirmado como
-requisito duro**, no como preferencia. Eso descarta los encoders solo-inglés
-(`all-MiniLM-L6-v2` y familia, y también `bge-small-en-v1.5`, que de otro modo sería la
-opción más barata; ver `PENDING_ITEMS.md` P1.C). Los modelos multilingües cargan
-un vocabulario de ~250 k tokens, y para un modelo **estático** la tabla de embeddings
-**es** el modelo entero:
+**Lo que esto borra del plan anterior:** `webtyp/webgpu` y la fase 5 como proyecto abierto.
+El razonamiento está en D4b.
 
-| dims | tabla fp32 | tabla int8 |
-|---|---|---|
-| 128 | ~128 MB | **~32 MB** |
-| 256 (D0) | ~256 MB | **~64 MB** |
-| 384 | ~384 MB | **~96 MB** |
+### D4b — El cómputo de una consulta es 400× menor que el de un documento, y eso borra WebGPU
 
-Todas son `250 000 × dim × {4,1}` bytes. La cifra que aplica al supuesto de trabajo es
-**~64 MB**; `plans/embed.md` §4 es la tabla de detalle y **manda** sobre cualquier número
-suelto en este archivo.
+WebGPU entró al plan para embeber **documentos** rápido. El navegador no embebe documentos.
 
-Por lo tanto: **la tabla de embeddings se embarca cuantizada a int8 con escalas por fila**,
-y el artifact del modelo se cachea en IndexedDB después de la primera descarga, de modo
-que se baja una vez por navegador y no una vez por sesión. Los modelos candidatos y la
-elección final se registran en [`docs/plans/embed.md`](plans/embed.md).
+Un forward pass cuesta en proporción al largo de la secuencia. Una consulta de 20 tokens
+sobre 12 capas de 384 dims son del orden de **280M MACs** — una fracción de lo que cuesta un
+chunk de 8 000 tokens. Eso cabe en WASM sobre CPU, sin `navigator.gpu`, sin WGSL, sin
+bindings de GPU.
 
-Los 64 MB son la cifra que hay que mirar con desconfianza, no con alivio: es una primera
-carga larga en una conexión mala. La fila de 128 dims (~32 MB) es el fallback documentado
-de §8 R2, y O1 decide entre las dos con datos de recall, no por gusto.
+Por lo tanto `nn` sube de la fase 5 a la **fase 3**, y lo hace en su versión CPU/WASM: el
+grafo del encoder en Go, con kernels escalares y SIMD128 donde rinda. Es incomparablemente
+más simple que escribir WGSL.
+
+**Esto no está medido, y es la única premisa del plan que no lo está.** La estimación honesta
+es 150 ms – 3 s según si se usa SIMD128, y ese rango es demasiado ancho para construir
+encima. Por eso la fase 3 abre con un benchmark y no con código de producción: ver §6.
+
+### D5 — El presupuesto del navegador elige el modelo; el español lo restringe
+
+Dos restricciones, en este orden:
+
+1. **El navegador tiene que poder descargar el artifact y correr un forward pass** (D4b).
+   Eso fija el techo de tamaño, porque el navegador es el entorno más apretado de los tres.
+2. **El español es requisito duro**, no preferencia. Descarta los encoders solo-inglés —
+   `all-MiniLM-L6-v2`, `bge-small-en-v1.5`, `bge-base-en-v1.5` — incluido el caso doloroso:
+   `bge-small-en-v1.5` son 33M parámetros y estaría en el catálogo de Cloudflare, o sea que
+   habría sido la opción más barata de todas. Solo inglés, descartada.
+
+Los tres niveles de tamaño, con el multilingüe ya filtrado:
+
+| Nivel | Params | Dims | Artifact int8 | Consulta en el navegador | Recall |
+|---|---|---|---|---|---|
+| Tabla estática (model2vec / "potion") | — | 128–256 | ~32–64 MB | microsegundos: lookup + mean-pool, sin atención | el más bajo |
+| **Transformer chico** — `multilingual-e5-small`, `paraphrase-multilingual-MiniLM-L12-v2` | ~118M | **384** | **~120 MB** | WASM sobre CPU, sin WebGPU (D4b) | intermedio, muy por encima del estático |
+| Transformer grande — `bge-m3`, `qwen3-embedding-0.6b` | 568–600M | 1024 | ~300–600 MB | WebGPU obligatorio; no entra en un isolate de 128 MB | el más alto |
+
+**Elegido: el nivel del medio.** Un transformer multilingüe chico de 384 dims: atención real,
+unas 5× el recall de una tabla estática, a 2–4× su tamaño, y —según D4b— sin necesidad de
+GPU para el único trabajo que hace en el navegador. El nivel grande queda descartado porque
+rompe la premisa de un solo modelo: solo corre en el servidor, y eso obliga a un segundo
+modelo para la consulta.
+
+Por qué la tabla de embeddings domina el tamaño: un vocabulario multilingüe son ~250 k
+tokens, y a 384 dims la tabla sola son `250 000 × 384 × 1` = **96 MB en int8** (384 MB en
+fp32). Es la mayor parte de los ~120 MB. Por eso el artifact **se embarca cuantizado a int8
+con escalas por fila**, y se cachea en IndexedDB después de la primera descarga: se baja una
+vez por navegador, no una vez por sesión.
+
+El modelo concreto y su tokenizador se cierran en
+[`docs/plans/embed.md`](plans/embed.md) §4, después del benchmark de apertura de la fase 3.
 
 ### D6 — Licencias
 
@@ -316,11 +363,10 @@ acá.
 | `webtyp/embed` | **nuevo** | puerto `Embedder` (fase 2) + adaptador estático (fase 3) | 2 / 3 | [`docs/plans/embed.md`](plans/embed.md) |
 | `webtyp/vectordb` | **creado** | almacén de documentos + kNN + filtros + LRU | 2 | [`vectordb/docs/PLAN.md`](https://github.com/webtyp/vectordb/blob/main/docs/PLAN.md) |
 | `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
-| `webtyp/weights` | **nuevo** | formato de artifact + caché en navegador | 3 | [`docs/plans/weights.md`](plans/weights.md) |
+| `webtyp/weights` | **nuevo** | formato de artifact int8 + caché en navegador | 3 | [`docs/plans/weights.md`](plans/weights.md) |
+| `webtyp/nn` | **nuevo** | grafo del encoder + kernels CPU/WASM | 3 | [`docs/plans/nn.md`](plans/nn.md) — **hay que reescribirlo**, ver nota (e) |
 | `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | este repositorio, §7 y §7b |
 | `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando §7b cierre |
-| `webtyp/webgpu` | **nuevo** | bindings de `navigator.gpu` | 5 | [`docs/plans/webgpu.md`](plans/webgpu.md) |
-| `webtyp/nn` | **nuevo** | kernels WGSL + grafo del encoder | 5 | [`docs/plans/nn.md`](plans/nn.md) |
 | `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 0 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
 
 Notas, cada una es una decisión que alguien va a querer revertir sin leer el porqué:
@@ -336,6 +382,13 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   otros consumidores y merece su propio plan; no bloquea a éste.
 - **(c) `vector-storage` pasó a fase 0.** Congelar una referencia histórica en JS no
   desbloquea ninguna persistencia; no pertenece a la fase 1. No bloquea nada.
+- **(e) `webtyp/webgpu` salió del plan, y `plans/nn.md` quedó obsoleto.** D4b borra la
+  necesidad de GPU: el navegador solo embebe consultas, y eso corre en WASM sobre CPU.
+  `plans/nn.md` está escrito para kernels WGSL y **no sirve como está** — hay que reescribirlo
+  para un grafo de encoder con kernels escalares + SIMD128 antes de crear el repositorio.
+  `plans/webgpu.md` quedó archivado en [`docs/history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md). Si el benchmark de apertura de la fase 3
+  dice que WASM no alcanza, se desarchiva; mientras tanto, un plan vivo para un repositorio
+  que no vamos a construir es exactamente la deuda que el skill prohíbe.
 - **(d) Dueño del chequeo de dimensión: `model`. DECIDIDO.** `vectordb` llama a
   `model.ValidateVector` y borra su aritmética propia de `len(b)/4`. «Una verificación que la
   librería ya hace se llama, nunca se re-implementa en el call site» — DRY, y la fila del
@@ -439,13 +492,37 @@ porque el GC es otro. Esa bandera es para los casos que requieren específicamen
 el target TinyGo — como los tests de blob de `indexdb` — no para el presupuesto de
 allocations de `vector`.
 
-### Fase 3 — Embeddings en el navegador
-`tokenizer` y `weights` en paralelo, luego el **adaptador estático** de `embed`.
+### Fase 3 — El embedder: un modelo, tres targets
 
-**Puerta:** un corpus real en español se indexa y se busca de punta a punta en el
-navegador, offline después de la primera carga, con un recall@10 documentado contra una
-referencia. La cifra de recall es la entrada de la decisión de fase 5 — si no está
-escrita, la fase 5 no tiene condición de entrada.
+**Puerta de entrada — un benchmark, antes de crear un solo repositorio.** Es la única
+premisa del plan que no está medida (D4b), y condiciona todo lo que viene después:
+
+> Un forward pass de **20 tokens** sobre **12 capas de 384 dims** en TinyGo `js/wasm`,
+> corrido en navegador con `gotest`, con y sin SIMD128. Media jornada de trabajo.
+> Se registra el número, no una impresión.
+
+| Resultado | Qué se construye |
+|---|---|
+| **< 300 ms** | el nivel del medio de D5 es viable. Se sigue como está escrito abajo. |
+| **300 ms – 1 s** | viable con reservas: hay que decidir si se acepta esa latencia en el cuadro de búsqueda, o se baja al nivel estático de D5. |
+| **> 1 s** | el nivel del medio no sirve para el navegador. Se baja a la tabla estática (~32–64 MB, sin atención), `nn` no se construye, y se acepta el recall más bajo. |
+
+El benchmark puede hacerse con un encoder de juguete de pesos aleatorios: mide el kernel, no
+la calidad. No hace falta elegir el modelo para correrlo.
+
+**Construcción, si la puerta abre:** `tokenizer` y `weights` en paralelo, luego `nn`, luego
+el adaptador de `embed` que los compone. `nn` es el que subió desde la fase 5 (D4b), en su
+versión CPU/WASM — su plan actual está escrito para WGSL y hay que reescribirlo primero
+(§5 nota (e)).
+
+**Puerta de salida:** el mismo código Go produce **el mismo vector para el mismo texto** en
+los tres targets de D4 — navegador (WASM), backend (nativo) y Worker (WASM) — con igualdad
+bit a bit o dentro de una tolerancia documentada. Y un corpus real en español se indexa en el
+backend, viaja al cliente, y se busca **offline** con un recall@10 documentado contra una
+referencia.
+
+Esa igualdad entre targets es el criterio que hace válido todo el plan: si los tres no
+coinciden, no hay un solo espacio vectorial y el requisito de no re-indexar nunca se cae.
 
 ### Fase 4 — Memoria del agente
 `agent` (contrato segregado + suite de conformance) → `webtyp/agentmemory` (implementación
@@ -463,17 +540,19 @@ implementación en `agentmemory`. Más la matriz DDT completa de `DEFAULT_LLM_SK
 **Puerta adicional, y es la que prueba el punto:** `go list -m all` sobre `webtyp.com/agent`
 no menciona ningún motor de base de datos.
 
-### Fase 5 — Encoder WebGPU y optimización
-`webgpu` → `nn` → un segundo adaptador de `embed`. Después cuantización int8 en `vector`,
-después BM25 léxico + fusión RRF.
+### Fase 5 — Optimización, si hace falta
 
-**Condición de entrada, no solo dependencia:** la fase 5 arranca únicamente si el harness
-de evaluación de `embed` demuestra que el embedder estático de la fase 3 no alcanza en el
-conjunto de prueba en español. Si el recall@10 es adecuado, **no** construir `nn` es el
-resultado correcto. Ver [`docs/plans/nn.md`](plans/nn.md).
+Ya no hay encoder de GPU acá: D4b lo borró y `webtyp/webgpu` salió del plan (§5 nota (e)).
+Lo que queda es trabajo de optimización, cada pieza con su propia condición de entrada y
+ninguna bloqueante:
 
-**Puerta:** el encoder produce vectores que coinciden con la implementación de referencia
-dentro de una tolerancia documentada, y `vectordb` no cambia en nada por su llegada.
+- **Cuantización int8 en `vector`**, que corre el techo de ~100 k documentos de D0. Entra
+  cuando exista un corpus que lo pida.
+- **BM25 léxico + fusión RRF**, que completa la mitad léxica que hoy cubre `LIKE` (§7.4).
+- **Un encoder sobre WebGPU**, solo si la puerta de la fase 3 midió que el forward pass en
+  WASM no alcanza *y* se decidió no bajar al nivel estático. El plan archivado está en
+  [`docs/history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva si ese caso
+  llega. Hoy no es el camino esperado.
 
 ## 7. Cambios que le pertenecen a este repositorio (`agent`)
 
@@ -653,11 +732,12 @@ el contrato** debe publicar una suite de conformance, igual que `storage/conform
 | `js.ValueOf` hace pánico con `[]byte` en `indexdb.create`, y bajo TinyGo no hay `recover()` | Crash irrecuperable de la página en la primera escritura de vector | `toJSValue` en `indexdb/docs/PLAN.md` §1: `Uint8Array` + `js.CopyBytesToJS`, con rama `default` que devuelve error en vez de crashear |
 | `indexdb` descarta columnas blob en silencio en 4 caminos más (`update` ×2, `Scan`, `checkCondition`) | Actualizar cualquier columna **borra el vector**; un blob nunca matchea una condición | `indexdb/docs/PLAN.md` §2: `case FieldBlob` en los cuatro switches **y** una rama `default` que falle ruidosamente |
 | **`jsvalue` codifica `[]byte` como JS string — confirmado, no hipotético** | Corrupción silenciosa para cualquier consumidor que encode por `jsvalue` | Fuera del camino crítico de este plan (`indexdb` no usa esa ruta), pero es un bug real: merece su propio plan — ver nota abajo |
-| La fase 5 (encoder WebGPU) es un proyecto grande y abierto | La entrega se corre indefinidamente | El embedder estático de la fase 3 hace que el producto funcione sin ella; la fase 5 es un cambio de adaptador detrás de `embed.Embedder` |
-| El artifact multilingüe pesa ~64 MB (D5) | Primera carga larga en conexión mala | Tabla de embeddings int8, caché en IndexedDB tras el primer fetch, y el fallback de 128 dims (~32 MB) de D5 como plan B explícito. **Este riesgo desaparece por completo si O1 se resuelve por embeber la consulta en el servidor** — ver `PENDING_ITEMS.md` P1 |
+| **El forward pass de una consulta en WASM es más lento de lo estimado** | El nivel del medio de D5 no sirve en el navegador | **Es la única premisa sin medir.** La fase 3 abre con un benchmark y tiene tres desenlaces escritos, uno de ellos «bajar al nivel estático». No es un riesgo a mitigar: es una medición a hacer antes de construir |
+| Los tres targets de D4 producen vectores distintos por diferencias de punto flotante | Se pierde el espacio vectorial común y hay que re-indexar — el requisito central se cae | Es la puerta de salida de la fase 3: igualdad bit a bit entre navegador, backend y Worker, o tolerancia documentada. `vec_index.model_id` detecta la divergencia al cargar |
+| El artifact del transformer chico pesa ~120 MB (D5) | Primera carga larga en conexión mala | Tabla de embeddings int8 con escalas por fila, caché en IndexedDB tras el primer fetch —se baja una vez por navegador, no por sesión—, y el nivel estático de D5 (~32–64 MB) como plan B medido, no supuesto |
 | Una transacción IDB se auto-comitea al ceder el event loop | La inserción por lote falla con `TransactionInactiveError` en la segunda fila | Contrato de lote especificado en la puerta de fase 1: emitir todos los `add()` y esperar `complete` de la transacción |
 | La cuota de IndexedDB desaloja el índice | Pérdida silenciosa de datos | `navigator.storage.persist()` al iniciar, `estimate()` antes de escribir, desalojo LRU propio antes que el del navegador |
-| La arena excede la memoria del navegador pasados ~100 k docs | OOM | Techo documentado (D1), cuantización int8 en la fase 5 |
+| La arena excede la memoria del navegador pasados ~100 k docs | OOM | Techo documentado (D0), cuantización int8 en la fase 5 |
 | Vectores y texto se desincronizan en una escritura parcial | Resultados corruptos | Una sola transacción abarcando ambos stores; una fila de cabecera `dim`/`model_id` rechaza una arena que no corresponde al cargar |
 
 **Nota sobre `jsvalue`, porque una versión anterior de este plan lo tenía al revés.**
@@ -690,13 +770,13 @@ la ruta string. Es un plan aparte, no una fase de éste. Anotado acá para que n
 
 ## 9. Decisiones abiertas
 
-- **O1. Compatibilidad de espacio vectorial entre servidor y navegador.** Reemplaza a la
-  vieja pregunta «qué modelo y qué dimensión», que era la pregunta chica. La grande está en
-  [`docs/PENDING_ITEMS.md`](PENDING_ITEMS.md) P1: si el corpus se indexa en el servidor con
-  `@cf/baai/bge-m3` (1024 dims) y el navegador tiene que **reusar esos vectores**, el
-  embedder del navegador debe producir vectores en **el mismo espacio** — y un modelo
-  estático destilado no lo hace. `vec_index.model_id` (D2) ya rechaza la mezcla; lo que hay
-  que decidir es cuál de los caminos se toma. Bloquea a D0, D4 y D5.
+- **O1. — CERRADA.** *Compatibilidad del espacio vectorial entre entornos.* Un solo modelo,
+  una sola implementación en Go, tres targets de compilación — ver **D4**, **D4b** y **D5**.
+  El catálogo de Workers AI y Ollama quedaron descartados como fuente del modelo porque
+  ningún modelo multilingüe de ahí entra en el navegador, y un modelo que solo corre en el
+  servidor obliga a un segundo modelo para la consulta, que es justamente lo que rompe el
+  requisito. Lo único que queda por medir es el forward pass en WASM: puerta de entrada de
+  la fase 3.
 - **O2. — CERRADA.** *¿`webtyp/binary` provee un códec little-endian de float32?* **No, y
   `vector` no debe depender de él.** `binary` expone `Float(name string, val float64)`, que
   escribe 8 bytes LE, dentro de un formato de mensaje con varints y nombres de campo

@@ -5,6 +5,13 @@ EXECUTOR: unassigned
 REVIEWER: none
 REPO: webtyp/nn (por crear)
 ---
+> ⚠️ **OBSOLETO — hay que reescribirlo antes de crear el repositorio.**
+> Este plan está escrito para kernels WGSL sobre WebGPU. La decisión **D4b** del índice
+> maestro borró esa necesidad: el navegador solo embebe consultas (~20 tokens), y eso corre
+> en WASM sobre CPU. `nn` subió de la fase 5 a la fase 3 y necesita un plan nuevo — grafo de
+> encoder con kernels escalares + SIMD128. Lo que sigue se conserva solo como referencia de
+> la estructura del grafo.
+
 
 > Repositorio nuevo. Se mueve a `nn/docs/PLAN.md` cuando el repositorio exista.
 > Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
