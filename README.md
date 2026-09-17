@@ -8,8 +8,12 @@ Autonomous AI Agent system for `tinywasm`.
 ### Current Plan
 *   [**PLAN.md**](docs/PLAN.md) — **master index**: browser-native semantic search on IndexedDB.
     Architecture, shared contracts, build order and phase gates across every repository involved.
-*   [Plans for repositories not yet created](docs/plans/) — `vector`, `vectordb`, `tokenizer`,
-    `weights`, `embed`, `webgpu`, `nn`. Each moves to its own repository once created.
+*   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — the two decisions still open
+    (vector-space reuse, string-slice fields) plus open questions. Decided items live in
+    the plan that executes them, not there.
+*   [Plans for repositories not yet created](docs/plans/) — `tokenizer`, `weights`, `embed`,
+    `webgpu`, `nn`. These five are on hold until PENDING_ITEMS P1 is decided; each moves to
+    its own repository once created. `vector` and `vectordb` already moved.
 
 ### Core Guides
 *   [System Architecture](docs/ARCHITECTURE.md) - High-level definition and contracts.
@@ -17,6 +21,10 @@ Autonomous AI Agent system for `tinywasm`.
 *   [Canonical Types](docs/TYPES.md) - All value types: Message, Episode, LLMRequest/Response, ToolDef, etc.
 *   [Custom Agent Research](docs/CUSTOM_AGENT.md) - Research and principles for building agents.
 *   [LLM Skill Reference](docs/DEFAULT_LLM_SKILL.md) - Mandatory engineering rules for LLMs working on this project.
+
+### Research
+*   [Cloudflare Workers AI](docs/CLOUDFLARE_AI_WORKER.md) - embedding and LLM model costs on
+    Workers AI; the source for the `bge-m3` option in PENDING_ITEMS P1.
 
 ### History
 *   [SQLite Memory Architecture](docs/history/MEMORY_SQLITE.md) - **superseded**. The SQLite +
