@@ -3,9 +3,8 @@ PLAN: "chore: migrar a webtyp.com y devolver los tests a verde"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-STATUS: review
+STATUS: running
 SESSION: 3727367204131861798
-PR: https://github.com/webtyp/agent/pull/8
 ---
 
 > Índice maestro: [`docs/MASTER_PLAN.md`](MASTER_PLAN.md). El alcance completo de este

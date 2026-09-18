@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/tinywasm/fmt"
+	"webtyp.com/fmt"
 )
 
 // New creates a new Agent instance.

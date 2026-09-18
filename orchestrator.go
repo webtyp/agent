@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/tinywasm/fmt"
+	"webtyp.com/fmt"
 )
 
 // Run executes the full ReAct + Reflection loop for a single user query.
@@ -22,7 +22,7 @@ func (a *Agent) Run(ctx context.Context, sessionID, userQuery string) (string, e
 		Role:       "user",
 		Content:    userQuery,
 		CreatedAt:  time.Now().Unix(),
-		TokenCount: len(userQuery) / 4, // Rough estimate
+		TokenCount: 0,
 	}
 	if err := a.mem.AppendMessage(ctx, sessionID, userMsg); err != nil {
 		return "", fmt.Errf("failed to append user message: %w", err)
@@ -86,7 +86,7 @@ func (a *Agent) Run(ctx context.Context, sessionID, userQuery string) (string, e
 				Role:       "assistant",
 				Content:    resp.Text, // Might be empty or thought process
 				ToolCalls:  resp.ToolCalls,
-				TokenCount: resp.TokensUsed, // Approximation?
+				TokenCount: 0,
 				CreatedAt:  time.Now().Unix(),
 			}
 			// We need to store tool calls in DB? Message struct has ToolName/ToolCallID but strictly for tool results or tool calls?
@@ -138,7 +138,7 @@ func (a *Agent) Run(ctx context.Context, sessionID, userQuery string) (string, e
 					ToolName:   call.Name,
 					ToolCallID: call.ID,
 					CreatedAt:  time.Now().Unix(),
-					TokenCount: len(output) / 4, // Estimate
+					TokenCount: 0,
 				}
 				if err != nil {
 					toolMsg.Content = fmt.Sprintf("Error: %s", err.Error())
@@ -176,7 +176,7 @@ func (a *Agent) Run(ctx context.Context, sessionID, userQuery string) (string, e
 				SessionID:  sessionID,
 				Role:       "assistant",
 				Content:    resp.Text,
-				TokenCount: resp.TokensUsed,
+				TokenCount: 0,
 				CreatedAt:  time.Now().Unix(),
 			}
 			if err := a.mem.AppendMessage(ctx, sessionID, candidateMsg); err != nil {
@@ -241,7 +241,7 @@ If NO, respond with "INSUFFICIENT" followed by a short critique.
 						Role:       "user",
 						Content:    fmt.Sprintf("Reflection feedback: %s. Please improve the answer.", critique),
 						CreatedAt:  time.Now().Unix(),
-						TokenCount: len(critique) / 4,
+						TokenCount: 0,
 					}
 					if err := a.mem.AppendMessage(ctx, sessionID, feedbackMsg); err != nil {
 						return "", fmt.Errf("failed to save feedback: %w", err)

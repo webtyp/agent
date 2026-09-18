@@ -28,8 +28,8 @@ type Message struct {
 	ToolName   string // non-empty only when Role == "tool"
 	ToolCallID string // correlates to the LLM tool_use ID
 	ToolCalls  []ToolCall // populated when Role == "assistant" and StopReason == "tool_use"
-	TokenCount int
-	CreatedAt  int64 // unixepoch
+	TokenCount int        // tokens of this message only (0 if unknown)
+	CreatedAt  int64      // unixepoch
 }
 
 // Episode is a compressed summary of past messages. Stored in the episodes table.

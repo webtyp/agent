@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/tinywasm/fmt"
+	"webtyp.com/fmt"
 )
 
 // mcpCaller abstracts the JSON-RPC transport for MCP protocol calls.

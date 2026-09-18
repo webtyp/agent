@@ -1,4 +1,4 @@
-# DEFAULT_LLM_SKILL — `tinywasm/agent`
+# DEFAULT_LLM_SKILL — `webtyp.com/agent`
 
 This file defines the **mandatory engineering rules** for any LLM working on this project.
 It is the authoritative source for the "Development Rules" section in `IMPLEMENTATION.md`.
@@ -26,22 +26,22 @@ Files exceeding **500 lines MUST be split** and renamed by domain.
 ### Isomorphic Package Policy (Backend + WASM)
 This library is designed to run on both backend (Go) and frontend (WASM via TinyGo). To maintain isomorphic compatibility, **always prefer `tinywasm/` packages** over their stdlib counterparts:
 
-| Instead of (stdlib)      | Use (tinywasm)                       |
-|--------------------------|--------------------------------------|
-| `fmt`, `errors`, `strings`, `strconv` | `github.com/tinywasm/fmt` |
-| `encoding/json`          | `github.com/tinywasm/json`           |
-| `context`                | `github.com/tinywasm/context`        |
-| `time`                   | `github.com/tinywasm/time`           |
+| Instead of (stdlib)      | Use (webtyp)                       |
+|--------------------------|------------------------------------|
+| `fmt`, `errors`, `strings`, `strconv` | `webtyp.com/fmt`   |
+| `encoding/json`          | `webtyp.com/json`                  |
+| `context`                | `webtyp.com/context`               |
+| `time`                   | `webtyp.com/time`                  |
 
 Packages **without** a `tinywasm/` equivalent use stdlib directly: `net/http`, `net/url`, `sync`.
 
 ### Allowed External Dependencies
 
 **Production Code (v1):**
-- `github.com/tinywasm/fmt` — isomorphic fmt/errors/strings/strconv
-- `github.com/tinywasm/json` — isomorphic encoding/json
-- `github.com/tinywasm/context` — isomorphic context
-- `github.com/tinywasm/time` — isomorphic time
+- `webtyp.com/fmt` — isomorphic fmt/errors/strings/strconv
+- `webtyp.com/json` — isomorphic encoding/json
+- `webtyp.com/context` — isomorphic context
+- `webtyp.com/time` — isomorphic time
 - `modernc.org/sqlite` — pure Go SQLite driver (supports `:memory:` out of the box)
 
 **Production Code (v2 — future):**

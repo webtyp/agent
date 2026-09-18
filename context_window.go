@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/tinywasm/fmt"
+	"webtyp.com/fmt"
 )
 
 // prepareContext builds the context window for the next LLM turn.

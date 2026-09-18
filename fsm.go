@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/tinywasm/fmt"
+import "webtyp.com/fmt"
 
 type State uint8
 

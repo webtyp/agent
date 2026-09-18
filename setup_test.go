@@ -1,73 +1,42 @@
 package agent
 
 import (
-	"fmt"
-	"net"
+	stdjson "encoding/json"
+	stdfmt "fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
-	"github.com/tinywasm/mcpserve"
+	mcpContext "webtyp.com/context"
+	"webtyp.com/json"
+	"webtyp.com/mcp"
+	"webtyp.com/model"
 )
 
 var testMemory MemoryStore
-var testHandler *mcpserve.Handler
+var testServer *httptest.Server
 
 type testToolProvider struct{}
 
-func (p testToolProvider) GetMCPTools() []mcpserve.Tool {
-	return []mcpserve.Tool{
+func (p testToolProvider) Tools() []mcp.Tool {
+	return []mcp.Tool{
 		{
 			Name:        "calculator",
-			Description: "Calculates sum",
-			Parameters: []mcpserve.Parameter{
-				{
-					Name:        "a",
-					Description: "First number",
-					Required:    true,
-					Type:        "number",
-				},
-				{
-					Name:        "b",
-					Description: "Second number",
-					Required:    true,
-					Type:        "number",
-				},
-			},
-			Execute: func(args map[string]any) {
-				var a, b int
-				// JSON unmarshals numbers as float64
-				if v, ok := args["a"].(float64); ok {
-					a = int(v)
-				} else if v, ok := args["a"].(int); ok {
-					a = v
+			Description: "Calculates sum of two numbers",
+			Args:        nil,
+			Access:      model.AccessPublic,
+			Execute: func(ctx *mcpContext.Context, req mcp.Request) (*mcp.Result, error) {
+				var args struct {
+					A float64 `json:"a"`
+					B float64 `json:"b"`
 				}
-				if v, ok := args["b"].(float64); ok {
-					b = int(v)
-				} else if v, ok := args["b"].(int); ok {
-					b = v
-				}
-				// Output result to stdout
-				// mcpserve captures stdout and returns it as tool result content
-				// or just use fmt.Print?
-				// Let's assume just printing the value works.
-				fmt.Printf("%d", a+b)
+				stdjson.Unmarshal([]byte(req.Params.Arguments), &args)
+				return mcp.Text(stdfmt.Sprintf("%v", args.A+args.B)), nil
 			},
 		},
 	}
-}
-
-func getFreePort() string {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return "8080"
-	}
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return "8080"
-	}
-	defer l.Close()
-	return fmt.Sprintf("%d", l.Addr().(*net.TCPAddr).Port)
 }
 
 func TestMain(m *testing.M) {
@@ -77,35 +46,31 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	port := getFreePort()
-	testHandler = mcpserve.NewHandler(
-		mcpserve.Config{Port: port},
-		[]mcpserve.ToolProvider{testToolProvider{}},
-		nil,
-		nil,
+	srv, err := mcp.NewServer(
+		mcp.Config{
+			Name:      "test-server",
+			Version:   "1.0.0",
+			Authorize: mcp.AllowAll,
+		},
+		[]mcp.ToolProvider{testToolProvider{}},
 	)
+	if err != nil {
+		panic(err)
+	}
 
-	go testHandler.Serve()
-
-	// Wait for server to start and URL be available
-	// URL() should probably use config port if not updated
-	// We might need to override URL logic or just wait
-
-	for i := 0; i < 50; i++ {
-		if testHandler.URL() != "" && testHandler.URL() != "http://localhost:0/mcp" {
-			break
+	testServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var ctx mcpContext.Context
+		body, _ := io.ReadAll(r.Body)
+		respMsg := srv.HandleMessage(&ctx, body)
+		w.Header().Set("Content-Type", "application/json")
+		var out []byte
+		if enc, ok := respMsg.(model.Encodable); ok {
+			json.Encode(enc, &out)
 		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if testHandler.URL() == "" {
-		fmt.Println("Warning: MCP Server URL not ready after timeout")
-	} else {
-		fmt.Printf("MCP Server listening on %s\n", testHandler.URL())
-	}
+		w.Write(out)
+	}))
 
 	code := m.Run()
-
-	testHandler.Stop()
+	testServer.Close()
 	os.Exit(code)
 }

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tinywasm/fmt"
+	"webtyp.com/fmt"
 )
 
 type jsonRPCRequest struct {
@@ -20,7 +20,7 @@ type jsonRPCRequest struct {
 
 type jsonRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
+	ID      any             `json:"id"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *rpcError       `json:"error,omitempty"`
 }
