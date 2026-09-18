@@ -15,7 +15,7 @@ REPO: webtyp/transformer (por crear)
 
 
 > Repositorio nuevo. Se mueve a `transformer/docs/PLAN.md` cuando el repositorio exista.
-> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/MASTER_PLAN.md
 > **Fase 5**, y la última pieza. Todo lo demás tiene que estar entregado y funcionando primero.
 
 # Plan — `webtyp/transformer`

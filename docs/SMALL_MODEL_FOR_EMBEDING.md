@@ -2,7 +2,7 @@
 DOC: "Elección del modelo de embeddings"
 FECHA_INVESTIGACION: 2026-09-17
 STATUS: consolidado; la elección se cierra con las dos mediciones de §5
-RELATED: docs/PLAN.md D5, docs/PENDING_ITEMS.md P1
+RELATED: docs/MASTER_PLAN.md D5, docs/PENDING_ITEMS.md P1
 ---
 
 > Consolidación de una investigación en línea (Gemini + ChatGPT, 2026-09-17). Las fuentes
@@ -15,7 +15,7 @@ RELATED: docs/PLAN.md D5, docs/PENDING_ITEMS.md P1
 # 1. Requisito
 
 El mejor modelo de embeddings **de 384 dimensiones**, multilingüe con foco español + inglés,
-de pesos abiertos, ejecutable **dentro del navegador**. Contexto en [`PLAN.md`](PLAN.md) D4:
+de pesos abiertos, ejecutable **dentro del navegador**. Contexto en [`MASTER_PLAN.md`](MASTER_PLAN.md) D4:
 una sola implementación en Go corriendo en tres targets, y el navegador es el más apretado.
 
 # 2. Candidatos **[inv]**

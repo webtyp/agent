@@ -7,7 +7,7 @@ REPO: webtyp/agent
 ---
 
 > El diff concreto de **este** repositorio. El índice maestro —arquitectura, contratos
-> compartidos, orden de construcción y puertas— es [`docs/PLAN.md`](../PLAN.md), y las
+> compartidos, orden de construcción y puertas— es [`docs/MASTER_PLAN.md`](../MASTER_PLAN.md), y las
 > decisiones **D4**, **D5** y **D7** de ahí son la justificación de lo de abajo: no se
 > vuelven a argumentar acá.
 >

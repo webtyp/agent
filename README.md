@@ -6,7 +6,9 @@ Autonomous AI Agent system for `tinywasm`.
 ## Documentation
 
 ### Current Plan
-*   [**PLAN.md**](docs/PLAN.md) — **master index**: browser-native semantic search on IndexedDB.
+*   [**PLAN.md**](docs/PLAN.md) — the dispatchable plan for THIS repository's next change.
+    Created and consumed by codejob; absent between dispatches.
+*   [**MASTER_PLAN.md**](docs/MASTER_PLAN.md) — **master index**: browser-native semantic search on IndexedDB.
     Architecture, shared contracts, build order and phase gates across every repository involved.
 *   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — one measurement left, not a decision: how
     many f32 MFLOPS TinyGo does in WASM — measured in webtyp/vector, phase 2. Decided items live in the
@@ -41,6 +43,8 @@ Autonomous AI Agent system for `tinywasm`.
     browser only embeds queries, which runs on CPU/WASM (PLAN D4b), so no GPU is needed.
     Unarchive only if the phase-3 benchmark says otherwise.
 *   [Last Plan Executed](docs/LAST_PLAN_EXECUTED.md) - replace `mcpserve` with `mcp` in tests.
+    **Written but never executed**, and its example code no longer matches `webtyp.com/mcp`.
+    Folded into the current PLAN.md, which documents the API drift; deleted when that lands.
 
 ### Architecture Diagrams
 *   [System Context](docs/diagrams/SYSTEM_CONTEXT.md)

@@ -7,7 +7,7 @@ REPO: webtyp/webgpu (por crear)
 ---
 
 > Repositorio nuevo. Se mueve a `webgpu/docs/PLAN.md` cuando el repositorio exista.
-> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/MASTER_PLAN.md
 > **Fase 5.** No arrancar antes de que la fase 3 esté entregada — el producto funciona sin esto.
 
 # Plan — `webtyp/webgpu`

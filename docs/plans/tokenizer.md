@@ -7,7 +7,7 @@ REPO: webtyp/tokenizer (por crear)
 ---
 
 > Repositorio nuevo. Se mueve a `tokenizer/docs/PLAN.md` cuando el repositorio exista.
-> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/MASTER_PLAN.md
 
 # Plan — `webtyp/tokenizer`
 

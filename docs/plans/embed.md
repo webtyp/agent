@@ -7,7 +7,7 @@ REPO: webtyp/embed (por crear)
 ---
 
 > Repositorio nuevo. Se mueve a `embed/docs/PLAN.md` cuando el repositorio exista.
-> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md — decisiones
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/MASTER_PLAN.md — decisiones
 > **D4** (dos fases detrás de un puerto) y **D5** (el español manda en el tamaño del modelo).
 
 # Plan — `webtyp/embed`

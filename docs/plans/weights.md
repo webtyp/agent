@@ -7,7 +7,7 @@ REPO: webtyp/weights (por crear)
 ---
 
 > Repositorio nuevo. Se mueve a `weights/docs/PLAN.md` cuando el repositorio exista.
-> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/PLAN.md
+> Índice maestro: https://github.com/webtyp/agent/blob/main/docs/MASTER_PLAN.md
 > **Fase 3** — `webtyp/embed` lo necesita desde su primera línea de código.
 
 # Plan — `webtyp/weights`
