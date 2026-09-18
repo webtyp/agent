@@ -24,10 +24,9 @@ inferencia, sin embeddings.
 Ambos son formatos razonables y ambos son el movimiento inicial equivocado acá:
 
 - **safetensors** es una cabecera JSON más tensores crudos — fácil de parsear, pero lleva
-  tensores fp32 dispuestos para un framework de entrenamiento. El embedder estático
-  necesita una tabla int8 con escalas por fila; convertir en tiempo de carga dentro del
-  navegador significa descargar 4× los bytes y gastar la memoria del cliente para tirar
-  tres cuartos.
+  tensores fp32 dispuestos para un framework de entrenamiento. Acá hace falta int8 con
+  escalas por fila (**D5**); convertir en tiempo de carga dentro del navegador significa
+  descargar 4× los bytes y gastar la memoria del cliente para tirar tres cuartos.
 - **GGUF** carga decenas de esquemas de cuantización y un modelo de metadatos muchísimo más
   grande que cualquier cosa que se necesite acá. Implementar lo suficiente como para ser
   correcto es un proyecto en sí.
@@ -49,8 +48,9 @@ tensors  crudos, alineados a 64 bytes, en el orden de la cabecera
 
 Puntos de diseño:
 
-- **Alineación a 64 bytes** por tensor, para que un tensor se pueda entregar a un buffer de
-  GPU o reinterpretar con `unsafe.Slice` sin una copia de realineación.
+- **Alineación a 64 bytes** por tensor, para que se pueda reinterpretar con `unsafe.Slice`
+  sin una copia de realineación — el mismo camino sin copia que usa el códec de
+  `webtyp/vector`.
 - **Little-endian en todo**, coincidiendo con el códec de `webtyp/vector`. Una sola
   decisión de endianness en todo el sistema.
 - **La config del tokenizador vive en la cabecera**, no en un archivo aparte. El
@@ -64,11 +64,19 @@ Puntos de diseño:
 
 ```go
 type Artifact struct {
-	ID      string            // "potion-multilingual-128M/int8"
+	ID      string  // e.g. "granite-embedding-97m-multilingual-r2/int8"
 	Version uint32
-	Tensors map[string]Tensor
+	// A slice, not a map: this package compiles to WASM under TinyGo, where the
+	// project bans map[K]V (see webtyp.com/context for the house pattern). A
+	// transformer artifact holds on the order of a hundred tensors — twelve layers
+	// of a handful each, plus the embedding table — so a linear scan by name costs
+	// nothing next to the I/O that produced them.
+	Tensors []Tensor
 	Tokenizer TokenizerConfig
 }
+
+// Tensor returns the tensor stored under name, or false. Linear scan, see above.
+func (a *Artifact) Tensor(name string) (Tensor, bool)
 
 type Tensor struct {
 	Name   string
@@ -128,6 +136,7 @@ El encoder transformer necesita el mismo lector con más dtypes (fp16, int4) y u
 | `TestOpen_ChecksumMismatch` | error |
 | `TestOpen_Alignment` | el offset de datos de todo tensor está alineado a 64 bytes |
 | `TestTensor_Float32sZeroCopy` | el slice devuelto aliasa el buffer fuente |
+| `TestArtifact_TensorByName` | encuentra por nombre, y devuelve `false` para uno que no está |
 | `TestTensor_Row` | la fila i de una tabla int8 son los bytes correctos |
 | `TestLoad_CachesAfterFirstFetch` | la segunda llamada no emite request HTTP (fetcher mock) |
 | `TestLoad_PartialBodyNotCached` | un cuerpo truncado deja el caché vacío |
@@ -141,5 +150,12 @@ go vet ./...
 gotest
 gotest -tinygo
 GOOS=js GOARCH=wasm go build ./...
-go run ./cmd/convert -in model.safetensors -out model.wtypw -quantize int8
+grep -rn "map\[" --include="*.go" . | grep -v _test.go        # → vacío
+grep -rn '"errors"\|"fmt"' --include="*.go" . | grep -v _test.go  # → vacío
 ```
+
+`cmd/convert` se testea contra un **artifact sintético** construido en el propio test, no
+contra un modelo descargado: el modelo todavía no está elegido (`PENDING_ITEMS.md` P1b) y
+este plan no lo necesita. Si tenés un `.safetensors` a mano, `go run ./cmd/convert -in
+model.safetensors -out model.wtypw -quantize int8` es una verificación extra, no parte de
+la puerta.
