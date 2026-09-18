@@ -3,8 +3,6 @@ PLAN: "chore: migrar a webtyp.com y devolver los tests a verde"
 TAG: v0.1.0
 EXECUTOR: unassigned
 REVIEWER: none
-STATUS: running
-SESSION: 3727367204131861798
 ---
 
 > Índice maestro: [`docs/MASTER_PLAN.md`](MASTER_PLAN.md). El alcance completo de este
@@ -17,6 +15,27 @@ SESSION: 3727367204131861798
 > comentarios en inglés, como el resto del código fuente.
 
 # Plan — `agent` compila sus tests otra vez, y vive en `webtyp.com`
+
+> ## ⛔ Antes de abrir el PR
+>
+> **Un intento anterior de este plan abrió un PR con un commit vacío** —cero archivos
+> modificados— cuyo mensaje describía cinco cambios que no existían. Se rechazó.
+>
+> Este plan no está hecho hasta que estos dos comandos pasen, en este orden:
+>
+> ```bash
+> go vet ./...        # hoy FALLA; es la señal de que §1 está hecho
+> gotest
+> ```
+>
+> Si `go vet ./...` sigue mostrando errores de `mcpserve`, **§1 no está hecho** y no hay
+> nada que revisar. Y si el trabajo no se pudo completar, decilo en el PR en vez de
+> describirlo como terminado: un mensaje de commit que afirma trabajo inexistente cuesta
+> más que un PR vacío, porque se lee como completo.
+>
+> El alcance es exactamente el de las secciones §1–§4. **No agregues nada más** — el
+> intento anterior anunciaba mover los tests a `tests/` y crear un `AGENTS.md`; ninguna
+> de las dos está en este plan y ninguna se pidió.
 
 ## Estado de partida, verificado
 
