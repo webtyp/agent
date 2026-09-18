@@ -343,7 +343,7 @@ acá.
 | `webtyp/vectordb` | **creado** | almacén de documentos + kNN + filtros + LRU | 2 | [`vectordb/docs/PLAN.md`](https://github.com/webtyp/vectordb/blob/main/docs/PLAN.md) |
 | `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
 | `webtyp/weights` | **nuevo** | formato de artifact int8 + caché en navegador | 3 | [`docs/plans/weights.md`](plans/weights.md) |
-| `webtyp/transformer` | **nuevo** | grafo del encoder + kernels CPU/WASM | 3 | [`docs/plans/transformer.md`](plans/transformer.md) — **hay que reescribirlo**, ver nota (e) |
+| `webtyp/transformer` | **nuevo** | grafo del encoder + kernels CPU/WASM | 3 | [`docs/plans/transformer.md`](plans/transformer.md) — etapa 1 despachable, etapa 2 espera P1b |
 | `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | [`docs/plans/agent.md`](plans/agent.md) |
 | `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando `plans/agent.md` §2 cierre |
 | `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 0 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
@@ -362,11 +362,12 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   y borra su aritmética propia de `len(b)/4` — una verificación que la librería ya hace se
   llama, no se re-implementa. Alcance exacto en `model/docs/PLAN.md`: sobre un blob
   multi-vector solo verifica «múltiplo de 4»; la concordancia de `dim` la impone `vec_index`.
-- **(e) `webtyp/webgpu` salió del plan y `plans/transformer.md` quedó obsoleto.** D4b borra la
-  necesidad de GPU. `plans/transformer.md` está escrito para WGSL y hay que reescribirlo para kernels
-  CPU/WASM antes de crear el repo; el plan de WebGPU quedó en
-  [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva solo si el
-  benchmark de la fase 3 dice que WASM no alcanza.
+- **(e) `webtyp/webgpu` salió del plan; `plans/transformer.md` ya fue reescrito.** D4b borró
+  la necesidad de GPU y el plan quedó reescrito para kernels CPU/WASM, **en dos etapas**: la
+  1 (kernels + el benchmark que decide la fase) no depende del modelo y es despachable ya; la
+  2 (el grafo) espera a que P1b elija, porque la arquitectura depende de cuál gane. El plan
+  de WebGPU quedó en [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva
+  solo si la etapa 1 mide algo inaceptable.
 
 ## 6. Orden de construcción y puertas de fase
 
@@ -453,18 +454,21 @@ allocations de `vector`.
 
 ### Fase 3 — El embedder: un modelo, tres targets
 
-**Puerta de entrada: aritmética, no un repositorio nuevo.** La fase 2 entrega los MFLOPS de
-f32 en WASM (`BenchmarkDot_384`). Dividir los 856M FLOP de D4b por ese número da el tiempo
-del forward pass de una consulta, y ese tiempo decide qué se construye. Es una división, no
-un proyecto.
+**Puerta de entrada: ABIERTA.** La fase 2 entregó el número (`vector` v0.1.1):
+**~3,3 GFLOPS** escalares bajo TinyGo WASM, de donde los 856M FLOP de D4b salen en
+**~259 ms** derivados. Eso descarta el desenlace malo —que el cómputo obligara a bajar a la
+tabla estática— y deja el transformer en pie. Detalle y salvedades en
+[`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1.
 
-Los tres desenlaces —seguir como está escrito, decidir sobre la latencia, o bajar a la tabla
-estática de D5— están tabulados con sus umbrales en [`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1.
-Ninguno es un bloqueo: el peor caso degrada a una opción ya escrita.
+Los 259 ms son un **piso**, no una predicción: `Dot` no incluye softmax, layernorm ni GELU.
+El número que manda es el que mida `transformer` con su propio benchmark, y sus tres
+desenlaces siguen tabulados en P1.
 
-**Construcción, si la aritmética da verde:** `tokenizer` y `weights` en paralelo, luego
+**Construcción:** `tokenizer` y `weights` en paralelo, luego
 `transformer`, luego el adaptador de `embed` que los compone. Antes de crear `transformer`
-hay que reescribir su plan, que sigue escrito para WGSL (§5 nota (e)).
+su plan ya está reescrito para CPU/WASM y viene en dos etapas (§5 nota (e)): la etapa 1
+—kernels y el benchmark que decide esta fase— **no depende de qué modelo gane P1b**, así que
+puede arrancar antes que `tokenizer` y `weights`.
 
 `transformer` confirma con su propio benchmark lo que la aritmética predijo — un forward pass
 real de 20 tokens. Si el medido se aparta más de 2× del derivado, el que manda es el medido y
