@@ -257,19 +257,23 @@ Eso cabe en WASM sobre CPU sin `navigator.gpu`, sin WGSL, sin bindings de GPU. P
 `transformer` sube de la fase 5 a la **fase 3** en versión CPU/WASM, y `webtyp/webgpu` sale
 del plan.
 
-**Esto no está medido, y es la premisa más frágil del plan.** Peor: hay una contradicción
-declarada entre documentos. `vector/docs/PLAN.md` §2 dice, sobre el mismo target:
+**MEDIDO.** `vector` v0.1.1: ~233 ns/op para un `Dot` de 384 dims bajo TinyGo WASM, o sea
+**~3,3 GFLOPS** escalares. Los 856M FLOP se pagan en **~259 ms** — un piso optimista, porque
+`Dot` no incluye softmax, layernorm ni GELU. Detalle y lectura completa en
+[`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1. La contradicción de abajo quedó **confirmada**:
+es un número escalar, no hay SIMD en juego. `vector/docs/PLAN.md` §2 decía:
 
 > No recurras a SIMD de WASM: el soporte de TinyGo es incompleto, y un intrínseco que no se
 > puede verificar es peor que un bucle correcto en todas partes.
 
-Si eso sigue vigente, los 856M FLOP se pagan **escalares**, y el forward pass puede irse a
-varios segundos — la banda en la que el transformer no sirve para el navegador y hay que
-bajar a la tabla estática de D5.
+Tenía razón, y medirlo era barato: no hizo falta construir `transformer` para responderlo.
+El número salió de `BenchmarkDot_384`, que `vector` ya corría en su propia puerta de fase 2 —
+solo faltaba registrarlo en MFLOPS en vez de ns/op.
 
-**No hace falta construir `transformer` para saberlo.** El número que decide es cuántos
-MFLOPS de f32 hace TinyGo en WASM, y ese es concern de `vector`, que ya lo mide en su propia
-puerta de fase 2 (`BenchmarkDot_384`). De ahí el forward pass sale por división. Ver §6.
+**Qué queda abierto:** los ~259 ms son el piso, no el techo. El benchmark real del encoder,
+cuando `transformer` exista, es el que confirma si la latencia sirve en un cuadro de
+búsqueda. Lo que la medición ya descartó es el escenario malo — que el cómputo obligara a
+bajar a la tabla estática de D5.
 
 ### D5 — El presupuesto del navegador elige el modelo; el español lo restringe
 

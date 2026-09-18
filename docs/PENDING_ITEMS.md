@@ -1,6 +1,6 @@
 ---
 DOC: "Lo que sigue sin decidir"
-STATUS: 2 mediciones pendientes; la primera se hace en webtyp/vector, fase 2
+STATUS: P1 medido (~3,3 GFLOPS); queda P1b, que necesita corpus real
 RELATED: docs/PLAN.md
 ---
 
@@ -15,61 +15,57 @@ RELATED: docs/PLAN.md
 > **Nota de idioma:** la prosa va en español; los bloques de código mantienen sus
 > comentarios en inglés.
 
-# P1 — Cuántos MFLOPS de f32 hace TinyGo en WASM
+# P1 — MEDIDO: ~3,3 GFLOPS bajo TinyGo WASM
 
-**No es una decisión: es una medición**, y no necesita ningún repositorio nuevo. Es la única
-premisa del plan que no está verificada, y de ella dependen `transformer`, `tokenizer`,
-`weights`, el adaptador de `embed` y la elección de modelo de D5.
+**Resuelto.** Medido en `webtyp/vector` v0.1.1, donde quedó registrado en el README para que
+una regresión sea visible.
 
-## Dónde se mide, y por qué ahí
+## El número
 
-Por **SRP**, en **`webtyp/vector`**: su concern es la aritmética de f32 sobre WASM, ya
-existe, ya tiene plan mergeado, y su propia puerta de fase 2 especifica `BenchmarkDot_384`
-como «el número por el que se juzga todo el diseño». Solo hay que **registrarlo en MFLOPS**,
-no en ns/op.
+```
+tinygo test -target wasm -bench=BenchmarkDot_384 -benchtime=2s
+→ 229,5 / 231,4 / 238,1 ns/op   (tres corridas, ~233 ns/op)
+```
 
-Por SRP el forward pass completo pertenece a `webtyp/transformer` — es quien posee los
-kernels del encoder. Pero ese repositorio no existe, su plan está obsoleto (escrito para
-WGSL), y **no hace falta para responder esto**: con los MFLOPS, el tiempo sale por división.
+Un `Dot` de 384 dims son 384 multiplicaciones + 383 sumas ≈ **768 FLOP**, así que
+`768 / 233e-9` ≈ **3,3 GFLOPS**. Escalar, sin SIMD — lo que confirma la afirmación de
+`vector/docs/PLAN.md` §2 que el plan maestro venía asumiendo sin verificar.
 
-## La aritmética
+Referencia: Go nativo en la misma máquina da ~8,3 GFLOPS, o sea que **WASM corre ~2,5×
+más lento**. Esa proporción es la parte reutilizable para cualquier presupuesto futuro.
 
-`PLAN.md` D4b: un forward pass de 20 tokens sobre 12 capas de 384 dims son **~428M MAC ≈
-856M FLOP**. Entonces `856 / MFLOPS = segundos`. Eso es todo.
+## La división
 
-(Corrección de un número que circuló antes: eran ~280M MAC, pero esa cuenta era **solo el
-FFN**. Con atención y proyecciones incluidas son ~428M, un 53% más.)
+`PLAN.md` D4b: un forward pass de 20 tokens sobre 12 capas de 384 dims ≈ **856M FLOP**.
 
-## La contradicción que hay que resolver primero
+```
+856M FLOP / 3,3 GFLOPS ≈ 259 ms
+```
 
-`vector/docs/PLAN.md` §2 afirma, sobre este mismo target:
+Por tamaño de cuerpo (D5), escalando proporcionalmente:
 
-> No recurras a SIMD de WASM: el soporte de TinyGo es incompleto, y un intrínseco que no se
-> puede verificar es peor que un bucle correcto en todas partes.
+| Candidato | Cuerpo | Forward pass derivado |
+|---|---|---|
+| `granite-embedding-97m-multilingual-r2` | 28,3M | ~259 ms |
+| `bekko-embedding-v1-a25m` | 24,9M | ~228 ms |
+| `bekko-embedding-v1-a8m` | 7,7M | ~70 ms |
 
-El plan maestro venía asumiendo SIMD128 disponible, y **el extremo optimista de la estimación
-dependía enteramente de eso**. Si `vector` tiene razón, los 856M FLOP se pagan escalares y el
-resultado probablemente caiga en la banda mala.
+## Cómo leer esto, sin adornos
 
-O sea: **es posible que P1 ya esté decidido en contra del transformer**, y que solo falte
-medir para confirmarlo. Confirmar o refutar esa afirmación sobre TinyGo es parte del mismo
-benchmark.
+Los tres caen bajo los 300 ms, que es la banda «viable, fase 3 como está escrita». **Pero
+259 ms es un piso optimista, no una predicción**, y la diferencia importa:
 
-## Los tres desenlaces
+`Dot` es el mejor caso posible — multiplicar-acumular secuencial, localidad perfecta,
+desenrollado de a 4. Un forward pass real agrega softmax, layernorm y GELU/SiLU, que son
+funciones trascendentes bastante más caras por elemento que un MAC, más los accesos
+con stride de la atención. Un factor de 1,5–3× sobre el piso es lo esperable, lo que
+ubica el número real en **~400–800 ms**: a caballo entre «viable» y «viable con reservas».
 
-| Forward pass derivado | Qué se construye |
-|---|---|
-| **< 300 ms** | el transformer chico de D5 es viable. Fase 3 como está escrita. |
-| **300 ms – 1 s** | viable con reservas. Hay que decidir si esa latencia se acepta en el cuadro de búsqueda o se baja al nivel estático. **Es el único desenlace que vuelve a requerir una decisión tuya.** |
-| **> 1 s** | se baja a la tabla estática de D5 (~32–64 MB, sin atención), `transformer` no se construye, y se acepta el recall más bajo. |
+**Lo que esto sí decide:** el transformer **no está muerto**, que era el riesgo vivo cuando
+apareció la contradicción de SIMD. No hay que bajar a tabla estática por falta de cómputo.
 
-Los tres están cubiertos por el plan, así que ninguno bloquea: el peor caso degrada a una
-opción escrita, no a una pregunta abierta.
-
-Con el número medido se cubren de una vez los tres candidatos de D5, porque solo cambia el
-tamaño del cuerpo: **28,3M** (`granite-embedding-97m-multilingual-r2`), **24,9M**
-(`bekko-v1-a25m`) y **7,7M** (`bekko-v1-a8m`). Ver
-[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
+**Lo que no decide:** si 400–800 ms es aceptable en un cuadro de búsqueda. Eso se confirma
+con el benchmark real de `transformer` cuando exista, no con esta división.
 
 ## P1b — La segunda medición: recall@10 en español, sobre corpus real
 
