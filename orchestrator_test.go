@@ -61,7 +61,7 @@ func TestReAct_ToolCallThenAnswer(t *testing.T) {
 			Primary: mockLLM,
 		},
 		Memory:     testMemory,
-		MCPServers: []string{testHandler.URL()},
+		MCPServers: []string{testServer.URL},
 	}
 
 	agent, err := New(cfg)
@@ -224,7 +224,7 @@ func TestReAct_MaxIterationsGuard(t *testing.T) {
 		Identity: IdentityConfig{Name: "Bot"},
 		LLMs: LLMConfig{Primary: mockLLM},
 		Memory: testMemory,
-		MCPServers: []string{testHandler.URL()},
+		MCPServers: []string{testServer.URL},
 		MaxIterations: 3,
 	}
 
@@ -239,7 +239,7 @@ func TestReAct_MaxIterationsGuard(t *testing.T) {
 }
 
 // TestOrchestrator_RealMCP verifies the full MCP protocol integration path:
-// tool discovery from a real mcpserve.Handler → tool execution via JSON-RPC → result propagation.
+// tool discovery from a real mcp.Server → tool execution via JSON-RPC → result propagation.
 // Unlike TestReAct_ToolCallThenAnswer (which uses hardcoded tool names), this test
 // asserts that tools are dynamically discovered and called by name from the registry.
 func TestOrchestrator_RealMCP(t *testing.T) {
@@ -275,7 +275,7 @@ func TestOrchestrator_RealMCP(t *testing.T) {
 		Identity:   IdentityConfig{Name: "Bot"},
 		LLMs:       LLMConfig{Primary: mockLLM},
 		Memory:     testMemory,
-		MCPServers: []string{testHandler.URL()},
+		MCPServers: []string{testServer.URL},
 	}
 
 	agent, err := New(cfg)

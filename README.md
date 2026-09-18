@@ -1,7 +1,7 @@
 # Agent
 <img src="docs/img/badges.svg">
 
-Autonomous AI Agent system for `tinywasm`.
+Autonomous AI Agent system for `webtyp`.
 
 ## Documentation
 
@@ -42,9 +42,6 @@ Autonomous AI Agent system for `tinywasm`.
 *   [WebGPU Encoder](docs/history/WEBGPU_ENCODER.md) - **archived, not cancelled**. The
     browser only embeds queries, which runs on CPU/WASM (PLAN D4b), so no GPU is needed.
     Unarchive only if the phase-3 benchmark says otherwise.
-*   [Last Plan Executed](docs/LAST_PLAN_EXECUTED.md) - replace `mcpserve` with `mcp` in tests.
-    **Written but never executed**, and its example code no longer matches `webtyp.com/mcp`.
-    Folded into the current PLAN.md, which documents the API drift; deleted when that lands.
 
 ### Architecture Diagrams
 *   [System Context](docs/diagrams/SYSTEM_CONTEXT.md)
