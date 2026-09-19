@@ -331,6 +331,42 @@ que él mismo define y necesita el control fino del lote — pero también habla
 `orm` y `ddl` bajo TinyGo `js/wasm`: **verificado, funcionan.** No hay condición pendiente
 acá.
 
+### D8 — El gate de host no prueba nada; `AGENTS.md` es la constitución de cada repositorio
+
+Dos PR de esta ola (`weights` #1, `agent` #9) salieron con `gotest` verde y sin poder compilar para
+el navegador. No fue descuido del ejecutor: **ningún plan escribió las restricciones**, y un plan
+que lista comandos sin decir cuál manda deja que el ejecutor elija el que pasa.
+
+Tres hechos que todo repositorio de este plan tiene que tener escritos en su propio `AGENTS.md`,
+porque es el archivo que un agente lee antes de tocar código:
+
+1. **`GOOS=js GOARCH=wasm go build ./...` no implica TinyGo.** Ese target usa la stdlib **completa**
+   de Go; TinyGo usa un **subconjunto**. `net/http` es el caso testigo: compila para `js/wasm` y
+   falla bajo TinyGo. El comando que decide es `tinygo build -target wasm` / `gotest -tinygo`.
+2. **`encoding/json` cuesta ~1 MB de wasm.** Medido sobre un hello-world TinyGo: 114 KB sin él,
+   1 115 KB con él. No rompe el build, se paga en cada descarga. `webtyp.com/json` existe por esto.
+3. **No se inventa un puerto que ya existe.** Una interfaz se justifica cuando lo que abstrae
+   **varía según el consumidor**: `storage.Conn` varía (indexdb / sqlt / postgres / mem), un cliente
+   HTTP no. `weights` declaró `StorageConn` y `Fetcher` en vez de usar `storage.Conn` y
+   `webtyp.com/fetch`, y el resultado es que la aplicación no puede pasarle la conexión que ya
+   tiene abierta.
+
+La tabla de reemplazos —`net/http`→`fetch`, `context`→`webtyp.com/context`,
+`encoding/json`→`webtyp.com/json`, `fmt`/`errors`/`strconv`/`strings`→`webtyp.com/fmt`,
+`time`→`webtyp.com/time`, `uuid`→`unixid`, `database/sql`→`storage`, y nada de `map[K]V`— va
+**inline en cada `AGENTS.md`**, no por referencia: el ejecutor no clona `webtyp/devskills`.
+
+Eso es duplicación deliberada y acotada. Lo que **no** se duplica es el *porqué*: cada `AGENTS.md`
+es dueño de la misión de su repositorio y de sus trampas propias, y la doctrina genérica se mantiene
+corta a propósito. El modelo a copiar es
+[`storage/AGENTS.md`](https://github.com/webtyp/storage/blob/main/AGENTS.md).
+
+Ya escritos: [`weights`](https://github.com/webtyp/weights/blob/main/AGENTS.md),
+[`agent`](https://github.com/webtyp/agent/blob/main/AGENTS.md),
+[`transformer`](https://github.com/webtyp/transformer/blob/main/AGENTS.md). `tokenizer`,
+`weightsc` y `agentmemory` llevan el suyo **antes** de su primer despacho, no después del primer PR
+fallido.
+
 ## 5. Mapa de repositorios
 
 | Repositorio | Estado | Responsabilidad única | Fase | Plan |
@@ -342,8 +378,9 @@ acá.
 | `webtyp/embed` | **nuevo** | puerto `Embedder` (fase 2) + adaptador estático (fase 3) | 2 / 3 | [`docs/plans/embed.md`](plans/embed.md) |
 | `webtyp/vectordb` | **creado** | almacén de documentos + kNN + filtros + LRU | 2 | [`vectordb/docs/PLAN.md`](https://github.com/webtyp/vectordb/blob/main/docs/PLAN.md) |
 | `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
-| `webtyp/weights` | **nuevo** | formato de artifact int8 + caché en navegador | 3 | [`docs/plans/weights.md`](plans/weights.md) |
-| `webtyp/transformer` | **nuevo** | grafo del encoder + kernels CPU/WASM | 3 | [`docs/plans/transformer.md`](plans/transformer.md) — etapa 1 despachable, etapa 2 espera P1b |
+| `webtyp/weights` | **creado** | formato de artifact int8 + caché en navegador | 3 | [`weights/docs/PLAN.md`](https://github.com/webtyp/weights/blob/main/docs/PLAN.md) — PR #1 devuelto, ver (f) |
+| `webtyp/weightsc` | **nuevo** | conversor offline safetensors → artifact (host-only) | 3 | pendiente — se escribe al corregir `weights`, ver (g) |
+| `webtyp/transformer` | **creado** | grafo del encoder + kernels CPU/WASM | 3 | [`transformer/docs/PLAN.md`](https://github.com/webtyp/transformer/blob/main/docs/PLAN.md) — etapa 1 en ejecución; la 2 sigue en [`docs/plans/transformer.md`](plans/transformer.md), espera P1b |
 | `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | [`docs/plans/agent.md`](plans/agent.md) |
 | `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando `plans/agent.md` §2 cierre |
 | `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 0 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
@@ -368,6 +405,37 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   2 (el grafo) espera a que P1b elija, porque la arquitectura depende de cuál gane. El plan
   de WebGPU quedó en [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva
   solo si la etapa 1 mide algo inaceptable.
+
+- **(f) `weights` y `agent` volvieron de su PR con la misma falla de raíz, y es de los planes.**
+  Los dos pasaron el gate de host —`gotest` verde, cobertura razonable— y ninguno compila para
+  el navegador. `weights` importa `net/http`, que TinyGo no provee; `agent` importa
+  `modernc.org/sqlite` desde el paquete raíz. Además `weights` declaró un `StorageConn` y un
+  `Fetcher` propios, duplicando `storage.Conn` y `webtyp.com/fetch`. Ningún plan de esta ola
+  escribió las restricciones; el checklist listaba los comandos pero nada fijaba *por qué*. La
+  corrección está en **D8**.
+- **(g) El conversor sale de `weights` a `webtyp/weightsc`.** Un `cmd/convert` con `os`, `flag` y
+  `log` dentro del módulo rompe `gotest -tinygo` y `GOOS=js GOARCH=wasm go build ./...` de todo el
+  repo, porque `./...` incluye `cmd/`. El ecosistema ya tiene el patrón para herramientas de
+  build: `ormc` para `orm`, `ddlc` para `ddl`, `sitec` para `site`. El **writer** se queda en
+  `weights` —no tiene dependencia de host y los tests de round-trip lo necesitan—; lo que se va es
+  la CLI.
+
+### Estado de la ola — 2026-09-19
+
+| Repositorio | Fase | Estado |
+|---|---|---|
+| `model`, `indexdb`, `storage` | 1 | **publicado** |
+| `vector`, `embed` (puerto), `vectordb` | 2 | **publicado** — `vector` v0.1.1 entregó los 3,3 GFLOPS de la puerta |
+| `agent` (migración a `webtyp.com`) | — | PR [#9](https://github.com/webtyp/agent/pull/9) **cumple su alcance**, en espera: falta rebase para traer `AGENTS.md`. El intento previo (#8) se cerró por commit vacío |
+| `weights` | 3 | PR [#1](https://github.com/webtyp/weights/pull/1) **devuelto con correcciones** (f) |
+| `transformer` | 3 | etapa 1 **en ejecución** — sesión 18091215561444816771 |
+| `tokenizer` | 3 | plan escrito, sin despachar |
+| `weightsc` | 3 | sin plan (g) |
+| `agent` (`MemoryStore` segregado), `agentmemory` | 4 | sin despachar |
+
+Lo único que **no puede avanzar sin el usuario** sigue siendo **P1b** (recall@10 en español sobre
+un corpus real): elige entre Granite 97M R2, Bekko a25m y Bekko a8m, y de eso depende la etapa 2
+de `transformer`. Ver [`PENDING_ITEMS.md`](PENDING_ITEMS.md).
 
 ## 6. Orden de construcción y puertas de fase
 
@@ -465,7 +533,9 @@ El número que manda es el que mida `transformer` con su propio benchmark, y sus
 desenlaces siguen tabulados en P1.
 
 **Construcción:** `tokenizer` y `weights` en paralelo, luego
-`transformer`, luego el adaptador de `embed` que los compone. Antes de crear `transformer`
+`transformer`, luego el adaptador de `embed` que los compone. Toda pieza de esta fase lleva su
+`AGENTS.md` **antes** del despacho (**D8**): es la fase que más código compilado a WASM produce y
+donde un gate de host verde engaña más. Antes de crear `transformer`
 su plan ya está reescrito para CPU/WASM y viene en dos etapas (§5 nota (e)): la etapa 1
 —kernels y el benchmark que decide esta fase— **no depende de qué modelo gane P1b**, así que
 puede arrancar antes que `tokenizer` y `weights`.
