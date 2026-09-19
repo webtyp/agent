@@ -128,12 +128,23 @@ que haya una medición que la pida, y complica el kernel que P1 ya validó.
 
 Esta es la entrega principal de la etapa 1. Todo lo demás existe para hacerla posible.
 
+Necesita un **arnés sintético**, no el grafo real. La diferencia importa y es la razón de
+que esta etapa no esté bloqueada por P1b:
+
 ```go
-// BenchmarkEncode_20x12x384 runs a full forward pass at the shape of the leading
-// candidate: 20 tokens, 12 layers, 384 dims, 6 heads, FFN 1536. Random weights —
-// this measures the kernels, not the model.
+// BenchmarkEncode_20x12x384 chains the kernels twelve times at the shape of the
+// leading candidate — 20 tokens, 384 dims, 6 heads, FFN 1536 — over random weights.
+//
+// This is a COST MODEL, not an encoder. It makes no correctness claim: the order is
+// the generic one (QKV projection, attention, softmax, output projection, FFN,
+// activation, two norms, two residuals), not any specific model's. Getting RoPE
+// placement, masking or GeGLU-vs-SiLU exactly right belongs to stage 2 and does not
+// change the FLOP count this measures.
 func BenchmarkEncode_20x12x384(b *testing.B)
 ```
+
+El arnés vive en `bench_test.go`, no en el paquete: nada de lo que mide se exporta, porque
+el `Encoder` de verdad es de la etapa 2.
 
 Corrélo **bajo TinyGo en WASM**, que es el target real:
 
