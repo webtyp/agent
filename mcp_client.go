@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tinywasm/fmt"
+	"webtyp.com/fmt"
 )
 
 type jsonRPCRequest struct {

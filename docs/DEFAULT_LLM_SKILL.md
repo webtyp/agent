@@ -1,4 +1,4 @@
-# DEFAULT_LLM_SKILL — `tinywasm/agent`
+# DEFAULT_LLM_SKILL — `webtyp/agent`
 
 This file defines the **mandatory engineering rules** for any LLM working on this project.
 It is the authoritative source for the "Development Rules" section in `IMPLEMENTATION.md`.
@@ -24,31 +24,31 @@ Files exceeding **500 lines MUST be split** and renamed by domain.
 - **`agent.go` constructor** (`New(cfg Config)`) is the **ONLY** place where concrete types are wired together.
 
 ### Isomorphic Package Policy (Backend + WASM)
-This library is designed to run on both backend (Go) and frontend (WASM via TinyGo). To maintain isomorphic compatibility, **always prefer `tinywasm/` packages** over their stdlib counterparts:
+This library is designed to run on both backend (Go) and frontend (WASM via TinyGo). To maintain isomorphic compatibility, **always prefer `webtyp.com/` packages** over their stdlib counterparts:
 
-| Instead of (stdlib)      | Use (tinywasm)                       |
+| Instead of (stdlib)      | Use (webtyp)                       |
 |--------------------------|--------------------------------------|
-| `fmt`, `errors`, `strings`, `strconv` | `github.com/tinywasm/fmt` |
-| `encoding/json`          | `github.com/tinywasm/json`           |
-| `context`                | `github.com/tinywasm/context`        |
-| `time`                   | `github.com/tinywasm/time`           |
+| `fmt`, `errors`, `strings`, `strconv` | `webtyp.com/fmt` |
+| `encoding/json`          | `webtyp.com/json`           |
+| `context`                | `webtyp.com/context`        |
+| `time`                   | `webtyp.com/time`           |
 
-Packages **without** a `tinywasm/` equivalent use stdlib directly: `net/http`, `net/url`, `sync`.
+Packages **without** a `webtyp.com/` equivalent use stdlib directly: `net/http`, `net/url`, `sync`.
 
 ### Allowed External Dependencies
 
 **Production Code (v1):**
-- `github.com/tinywasm/fmt` — isomorphic fmt/errors/strings/strconv
-- `github.com/tinywasm/json` — isomorphic encoding/json
-- `github.com/tinywasm/context` — isomorphic context
-- `github.com/tinywasm/time` — isomorphic time
+- `webtyp.com/fmt` — isomorphic fmt/errors/strings/strconv
+- `webtyp.com/json` — isomorphic encoding/json
+- `webtyp.com/context` — isomorphic context
+- `webtyp.com/time` — isomorphic time
 - `modernc.org/sqlite` — pure Go SQLite driver (supports `:memory:` out of the box)
 
 **Production Code (v2 — future):**
 - `github.com/asg017/sqlite-vec` — vector search extension (WASM-compatible)
 
 **Test-Only Code** (`*_test.go`):
-- `github.com/tinywasm/mcpserve` (v0.0.20+) — MCP protocol implementation for realistic tests
+- `webtyp.com/mcp` — MCP server & client implementation for tests
 
 **External Test Tools** (not Go imports — external processes):
 - **Ollama** (v0.4+) with `qwen2.5:7b` — required for `//go:build integration` tests only
@@ -96,26 +96,13 @@ Every external interface **MUST** have a mock in `*_test.go` files:
 
 Tests must be fast (no real I/O), deterministic, and side-effect free.
 
-### Test-Only Dependencies: `mcpserve`
-`github.com/tinywasm/mcpserve` is permitted **only in `_test.go` files**. It is NOT imported by production code.
-
-**Rationale:** `mcpserve` provides the complete MCP protocol implementation. Using it in tests eliminates duplicate protocol logic (`setup_test.go` launches a real handler; `orchestrator_test.go` uses end-to-end flows). Since `*mcpserve.Handler` satisfies `agent.MCPServer` (via `URL() string`), it can be passed directly to `Config.MCPHandlers`.
-
-**Distribution:**
-- `mcp_client_test.go` — `httptest.Server` (manual JSON-RPC client tests)
-- `orchestrator_test.go` — `*mcpserve.Handler` (full ReAct loop with real MCP)
-- `setup_test.go` — `*mcpserve.Handler` (shared test infrastructure)
-- `mock_mcp_test.go` — `MockMCPClient` (unit tests with controlled outputs)
-
-`MockMCPClient` is still required for tests where tool behavior must be deterministically controlled (error injection, empty responses).
-
 ### Shared Setup
 `setup_test.go` initializes shared test infrastructure **once** for the entire package:
 
 ```go
 var (
-    testMCPHandler *mcpserve.Handler
-    testMemory     agent.MemoryStore // shared SQLite :memory: instance
+    testServer *httptest.Server
+    testMemory agent.MemoryStore // shared SQLite :memory: instance
 )
 
 func TestMain(m *testing.M) {
@@ -124,9 +111,8 @@ func TestMain(m *testing.M) {
     // guaranteed by the session_id column in every table (see history/MEMORY_SQLITE.md, section 2.3).
     testMemory = agent.NewSQLiteMemory(":memory:")
 
-    testMCPHandler = mcpserve.NewHandler(cfg, providers, nil, nil)
-    go testMCPHandler.Serve()
-    // testMCPHandler satisfies agent.MCPServer via URL() string
+    srv, _ := mcp.NewServer(mcp.Config{Name: "test", Version: "1.0.0", Authorize: mcp.AllowAll}, []mcp.ToolProvider{testToolProvider{}})
+    testServer = httptest.NewServer(http.HandlerFunc(...))
     os.Exit(m.Run())
 }
 ```
@@ -147,7 +133,6 @@ func TestReAct_ToolCallThenAnswer(t *testing.T) {
 > - `modernc.org/sqlite` supports `:memory:` natively with the same SQL API as on-disk SQLite.
 > - Session isolation by `session_id` makes a single shared instance sufficient for all tests.
 
-Test-only `go.mod` entries (like `mcpserve`) are excluded from production binaries — this is safe for ecosystem-internal libraries.
 
 ---
 
