@@ -1,6 +1,6 @@
 ---
 DOC: "Lo que sigue sin decidir"
-STATUS: P1 medido (~3,3 GFLOPS) y confirmado en transformer (~313 ms, banda media — decisión humana pendiente); queda P1b, que necesita corpus real
+STATUS: P1 medido (~3,3 GFLOPS) y confirmado en transformer (~313 ms, banda media — decisión de latencia pendiente); P1b resuelto — granite-embedding-97m-multilingual-r2
 RELATED: docs/MASTER_PLAN.md
 ---
 
@@ -84,24 +84,28 @@ direcciones. Según la tabla de tres desenlaces (`transformer/docs/PLAN.md`), es
 
 **Esto es exactamente el punto que la tabla marca como decisión humana, no de ejecutor:**
 ¿se acepta ~300–340 ms (con la varianza medida, hasta ~343 ms en el peor caso corrido) como
-latencia de un cuadro de búsqueda? La fase 2 (el grafo real del encoder) todavía no se
-despachó — espera a P1b de todos modos — así que no hay apuro en decidir, pero la respuesta
-condiciona si la fase 2 se despacha "como está escrita" o con el pedido explícito de medir
-apenas el grafo compile, antes de invertir más.
+latencia de un cuadro de búsqueda? P1b ya resolvió el modelo (abajo), así que la fase 2 (el
+grafo real del encoder) queda despachable — pero la respuesta a esta pregunta condiciona si
+se despacha "como está escrita" o con el pedido explícito de medir apenas el grafo compile,
+antes de invertir más.
 
-## P1b — La segunda medición: recall@10 en español, sobre corpus real
+## P1b — RESUELTO: `granite-embedding-97m-multilingual-r2`
 
-Lo de arriba dice **si corre**. No dice **cuál elegir**. El MTEB multilingüe promedia 18
-idiomas y nosotros tenemos uno, así que un modelo de 60.3 promediado puede ser peor en
-español que uno de 57.5.
+**Decisión directa del usuario (2026-09-20), no la medición de recall@10 especificada
+abajo.** Queda anotado así para que nadie confunda esto con el resultado de un corpus real:
+si más adelante el recall en español decepciona, la medición de esta sección sigue siendo la
+forma de confirmarlo o de justificar un cambio de candidato — sigue siendo barata porque los
+tres candidatos comparten los 384 dims (`vector`, `vectordb`, el arena y el códec no cambian).
 
-La medición que elige: 200–500 documentos representativos en español, 30–50 consultas reales
-con el documento correcto anotado a mano, y recall@10 + MRR por candidato. Un día de trabajo,
-especificada en [`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
+Con esto elegido: 28,3M de cuerpo, 384 dims, 32K de contexto, Apache 2.0 (**D5**), y es la
+forma exacta (12 capas, 6 cabezales, FFN 1536) que `transformer` ya usó para su benchmark de
+etapa 1 — el ~313 ms medido (P1, arriba) es el número de este modelo, no una aproximación.
+Desbloquea el despacho de la etapa 2 de `transformer` (el grafo real).
 
-Es barata porque los tres candidatos son de 384 dims: `vector`, `vectordb`, el arena y el
-códec son idénticos, así que cambiar de candidato es re-embeber el corpus de prueba y nada
-más.
+La medición de recall@10, si hace falta después: 200–500 documentos representativos en
+español, 30–50 consultas reales con el documento correcto anotado a mano, y recall@10 + MRR.
+Un día de trabajo, especificada en
+[`SMALL_MODEL_FOR_EMBEDING.md`](SMALL_MODEL_FOR_EMBEDING.md) §5.
 
 # Registro de lo ya decidido
 
@@ -127,3 +131,4 @@ Cada uno vive en el plan que lo ejecuta. No repito el contenido acá.
 | `webtyp/binary` no sirve como códec de vectores | `MASTER_PLAN.md` O2 |
 | Tags como texto delimitado; un `Kind` si aparece un segundo consumidor | `MASTER_PLAN.md` O3 |
 | pgvector / `VectorSearcher`: descartado | — |
+| Modelo elegido: `granite-embedding-97m-multilingual-r2` (P1b, decisión directa, no recall@10 medido) | `PENDING_ITEMS.md` P1b |

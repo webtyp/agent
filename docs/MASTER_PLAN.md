@@ -380,7 +380,7 @@ fallido.
 | `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
 | `webtyp/weights` | **creado** | formato de artifact int8 + caché en navegador | 3 | [PR #1](https://github.com/webtyp/weights/pull/1) corregido y **mergeado** v0.1.0, ver (f) |
 | `webtyp/weightsc` | **nuevo** | conversor offline safetensors → artifact (host-only) | 3 | pendiente — se escribe al corregir `weights`, ver (g) |
-| `webtyp/transformer` | **creado** | grafo del encoder + kernels CPU/WASM | 3 | [`transformer/docs/PLAN.md`](https://github.com/webtyp/transformer/blob/main/docs/PLAN.md) — etapa 1 en ejecución; la 2 sigue en [`docs/plans/transformer.md`](plans/transformer.md), espera P1b |
+| `webtyp/transformer` | **creado** | grafo del encoder + kernels CPU/WASM | 3 | etapa 1 **mergeada** v0.1.0 ([PR #1](https://github.com/webtyp/transformer/pull/1), ver (i)); la 2 —el grafo, ahora despachable, P1b resuelto— sigue en [`docs/plans/transformer.md`](plans/transformer.md) |
 | `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | [`docs/plans/agent.md`](plans/agent.md) |
 | `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando `plans/agent.md` §2 cierre |
 | `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 0 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
@@ -401,10 +401,12 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   multi-vector solo verifica «múltiplo de 4»; la concordancia de `dim` la impone `vec_index`.
 - **(e) `webtyp/webgpu` salió del plan; `plans/transformer.md` ya fue reescrito.** D4b borró
   la necesidad de GPU y el plan quedó reescrito para kernels CPU/WASM, **en dos etapas**: la
-  1 (kernels + el benchmark que decide la fase) no depende del modelo y es despachable ya; la
-  2 (el grafo) espera a que P1b elija, porque la arquitectura depende de cuál gane. El plan
-  de WebGPU quedó en [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva
-  solo si la etapa 1 mide algo inaceptable.
+  1 (kernels + el benchmark que decide la fase) no dependía del modelo y ya está mergeada
+  (v0.1.0, ver (i)); la 2 (el grafo) esperaba a que P1b eligiera — **P1b ya resolvió**
+  `granite-embedding-97m-multilingual-r2` (`PENDING_ITEMS.md`), así que la etapa 2 queda
+  despachable. El plan de WebGPU quedó en
+  [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md) y se desarchiva solo si la etapa 1
+  midió algo inaceptable — no fue el caso, aunque cayó en la banda media, ver (i).
 
 - **(f) `weights` y `agent` volvieron de su PR con la misma falla de raíz, y es de los planes.**
   Los dos pasaron el gate de host —`gotest` verde, cobertura razonable— y ninguno compila para
@@ -460,13 +462,15 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
 | `weightsc` | 3 | sin plan (g) |
 | `agent` (`MemoryStore` segregado), `agentmemory` | 4 | sin despachar |
 
-Lo que **no puede avanzar sin el usuario**: **P1b** (recall@10 en español sobre un corpus
-real) elige entre Granite 97M R2, Bekko a25m y Bekko a8m, y de eso depende la etapa 2 de
-`transformer`. Y, sin bloquear nada todavía porque la etapa 2 espera a P1b de todos modos, la
-latencia medida de la etapa 1 (~313 ms, banda media de la tabla de tres desenlaces) tiene una
-pregunta abierta: ¿se acepta esa latencia en un cuadro de búsqueda, o se despacha la etapa 2
-con el pedido explícito de medir el grafo real apenas compile, antes de invertir más? Ver
-[`PENDING_ITEMS.md`](PENDING_ITEMS.md).
+**P1b resuelto — 2026-09-20: `granite-embedding-97m-multilingual-r2`.** Decisión directa del
+usuario, no la medición de recall@10 que la sección de P1b sigue especificando por si hace
+falta más adelante. Con esto, la etapa 2 de `transformer` (el grafo real) queda **despachable**.
+
+Lo único que sigue abierto, y no bloquea el despacho: la latencia medida de la etapa 1
+(~313 ms, banda media de la tabla de tres desenlaces, ver (i)) es del **mismo modelo** elegido
+—12 capas, 6 cabezales, 384 dims— así que la pregunta sigue en pie: ¿se acepta esa latencia en
+un cuadro de búsqueda tal cual, o se despacha la etapa 2 con el pedido explícito de medir el
+grafo real apenas compile, antes de invertir más? Ver [`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1.
 
 ## 6. Orden de construcción y puertas de fase
 
@@ -567,8 +571,9 @@ desenlaces siguen tabulados en P1.
 `tinygo test -target wasm`: seis corridas entre 290 y 343 ms, promedio ~313 ms. Cae en la
 banda **media** de la tabla de tres desenlaces — «viable con reservas» —, no en la banda
 «< 300 ms, etapa 2 como está escrita». Detalle completo en
-[`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1. **Decisión humana pendiente**, sin apuro porque
-la etapa 2 igual espera a P1b: ¿se acepta esa latencia en un cuadro de búsqueda?
+[`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1. **Decisión humana pendiente**: ¿se acepta esa
+latencia en un cuadro de búsqueda? Ya no bloquea el despacho —P1b resolvió el modelo— pero
+sigue sin contestar.
 
 **Construcción:** `tokenizer` y `weights` en paralelo, luego
 `transformer`, luego el adaptador de `embed` que los compone. Toda pieza de esta fase lleva su
