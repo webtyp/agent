@@ -437,6 +437,15 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   resolvió una llamada `codejob` en blanco antes de aprobar. **Verificación que sí lo detecta:**
   un merge real en un worktree descartable (`git worktree add ... && git merge --no-commit`), no
   el resumen del bot ni `git merge-tree` sin más.
+- **(i) `transformer` #1 reimplementó el producto punto que D8/§4 prohíben, adentro del propio
+  arnés que mide si `Dot` alcanza.** El cómputo de scores de atención en `bench_test.go` hacía
+  el bucle `Q·K` a mano en vez de llamar `vector.Dot` — la regla explícita de
+  `transformer/docs/PLAN.md` ("no reimplementes el producto punto") rota en el archivo que
+  existe para confirmar esa misma medición. Además el README documentaba `go test -bench`
+  (nativo, ~2,5× más rápido, la lectura mentirosa que el propio `AGENTS.md` nombra) y un número
+  que no reprodujo con ningún comando en esta máquina. Corregido: la llamada pasa por `Dot`, el
+  README usa `tinygo test -target wasm -bench` y reporta el rango medido de verdad. Ver **P1** en
+  [`PENDING_ITEMS.md`](PENDING_ITEMS.md) para el resultado y la decisión pendiente que abre.
 
 ### Estado de la ola — 2026-09-20
 
@@ -446,14 +455,18 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
 | `vector`, `embed` (puerto), `vectordb` | 2 | **publicado** — `vector` v0.1.1 entregó los 3,3 GFLOPS de la puerta |
 | `agent` (migración a `webtyp.com`) | — | **publicado** — PR [#9](https://github.com/webtyp/agent/pull/9) corregido (h) y mergeado v0.1.0. El intento previo (#8) se había cerrado por commit vacío |
 | `weights` | 3 | **publicado** — PR [#1](https://github.com/webtyp/weights/pull/1) corregido (f) y mergeado v0.1.0 |
-| `transformer` | 3 | etapa 1 **en ejecución** — sesión 18091215561444816771 |
+| `transformer` | 3 | etapa 1 **publicada** — PR [#1](https://github.com/webtyp/transformer/pull/1) corregido (i) y mergeado v0.1.0. Benchmark ~313 ms, banda media — decisión humana pendiente, ver P1 |
 | `tokenizer` | 3 | plan escrito, sin despachar |
 | `weightsc` | 3 | sin plan (g) |
 | `agent` (`MemoryStore` segregado), `agentmemory` | 4 | sin despachar |
 
-Lo único que **no puede avanzar sin el usuario** sigue siendo **P1b** (recall@10 en español sobre
-un corpus real): elige entre Granite 97M R2, Bekko a25m y Bekko a8m, y de eso depende la etapa 2
-de `transformer`. Ver [`PENDING_ITEMS.md`](PENDING_ITEMS.md).
+Lo que **no puede avanzar sin el usuario**: **P1b** (recall@10 en español sobre un corpus
+real) elige entre Granite 97M R2, Bekko a25m y Bekko a8m, y de eso depende la etapa 2 de
+`transformer`. Y, sin bloquear nada todavía porque la etapa 2 espera a P1b de todos modos, la
+latencia medida de la etapa 1 (~313 ms, banda media de la tabla de tres desenlaces) tiene una
+pregunta abierta: ¿se acepta esa latencia en un cuadro de búsqueda, o se despacha la etapa 2
+con el pedido explícito de medir el grafo real apenas compile, antes de invertir más? Ver
+[`PENDING_ITEMS.md`](PENDING_ITEMS.md).
 
 ## 6. Orden de construcción y puertas de fase
 
@@ -549,6 +562,13 @@ tabla estática— y deja el transformer en pie. Detalle y salvedades en
 Los 259 ms son un **piso**, no una predicción: `Dot` no incluye softmax, layernorm ni GELU.
 El número que manda es el que mida `transformer` con su propio benchmark, y sus tres
 desenlaces siguen tabulados en P1.
+
+**Etapa 1 de `transformer` — MEDIDO, v0.1.0.** `BenchmarkEncode_20x12x384` bajo
+`tinygo test -target wasm`: seis corridas entre 290 y 343 ms, promedio ~313 ms. Cae en la
+banda **media** de la tabla de tres desenlaces — «viable con reservas» —, no en la banda
+«< 300 ms, etapa 2 como está escrita». Detalle completo en
+[`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1. **Decisión humana pendiente**, sin apuro porque
+la etapa 2 igual espera a P1b: ¿se acepta esa latencia en un cuadro de búsqueda?
 
 **Construcción:** `tokenizer` y `weights` en paralelo, luego
 `transformer`, luego el adaptador de `embed` que los compone. Toda pieza de esta fase lleva su

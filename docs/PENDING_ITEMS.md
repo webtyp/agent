@@ -1,6 +1,6 @@
 ---
 DOC: "Lo que sigue sin decidir"
-STATUS: P1 medido (~3,3 GFLOPS); queda P1b, que necesita corpus real
+STATUS: P1 medido (~3,3 GFLOPS) y confirmado en transformer (~313 ms, banda media — decisión humana pendiente); queda P1b, que necesita corpus real
 RELATED: docs/MASTER_PLAN.md
 ---
 
@@ -66,6 +66,28 @@ apareció la contradicción de SIMD. No hay que bajar a tabla estática por falt
 
 **Lo que no decide:** si 400–800 ms es aceptable en un cuadro de búsqueda. Eso se confirma
 con el benchmark real de `transformer` cuando exista, no con esta división.
+
+## El benchmark real de `transformer` — MEDIDO, y no cae donde se esperaba
+
+`webtyp/transformer` v0.1.0 (`BenchmarkEncode_20x12x384`, `tinygo test -target wasm`, arnés
+sintético de 12 capas / 384 dims / 6 cabezales / FFN 1536 — la forma de `granite-embedding-97m`):
+
+```
+tinygo test -target wasm -bench=BenchmarkEncode_20x12x384 -benchtime=2s/3s
+→ 290,8 / 313,3 / 343,2 / 328,4 / 301,3 / 303,6 ms/op   (seis corridas, promedio ~313 ms)
+```
+
+No cayó en la banda esperada de 400–800 ms (1,5–3× el piso): quedó **más cerca del piso**
+(259 ms) de lo previsto, con varianza corrida a corrida que cruza los 300 ms en ambas
+direcciones. Según la tabla de tres desenlaces (`transformer/docs/PLAN.md`), eso es la banda
+**media — «viable con reservas», no «< 300 ms, fase 2 como está escrita»**.
+
+**Esto es exactamente el punto que la tabla marca como decisión humana, no de ejecutor:**
+¿se acepta ~300–340 ms (con la varianza medida, hasta ~343 ms en el peor caso corrido) como
+latencia de un cuadro de búsqueda? La fase 2 (el grafo real del encoder) todavía no se
+despachó — espera a P1b de todos modos — así que no hay apuro en decidir, pero la respuesta
+condiciona si la fase 2 se despacha "como está escrita" o con el pedido explícito de medir
+apenas el grafo compile, antes de invertir más.
 
 ## P1b — La segunda medición: recall@10 en español, sobre corpus real
 
