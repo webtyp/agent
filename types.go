@@ -28,7 +28,7 @@ type Message struct {
 	ToolName   string // non-empty only when Role == "tool"
 	ToolCallID string // correlates to the LLM tool_use ID
 	ToolCalls  []ToolCall // populated when Role == "assistant" and StopReason == "tool_use"
-	TokenCount int
+	TokenCount int // tokens of this specific message alone (0 if unknown)
 	CreatedAt  int64 // unixepoch
 }
 
