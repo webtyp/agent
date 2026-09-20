@@ -378,7 +378,7 @@ fallido.
 | `webtyp/embed` | **nuevo** | puerto `Embedder` (fase 2) + adaptador estático (fase 3) | 2 / 3 | [`docs/plans/embed.md`](plans/embed.md) |
 | `webtyp/vectordb` | **creado** | almacén de documentos + kNN + filtros + LRU | 2 | [`vectordb/docs/PLAN.md`](https://github.com/webtyp/vectordb/blob/main/docs/PLAN.md) |
 | `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
-| `webtyp/weights` | **creado** | formato de artifact int8 + caché en navegador | 3 | [`weights/docs/PLAN.md`](https://github.com/webtyp/weights/blob/main/docs/PLAN.md) — PR #1 devuelto, ver (f) |
+| `webtyp/weights` | **creado** | formato de artifact int8 + caché en navegador | 3 | [PR #1](https://github.com/webtyp/weights/pull/1) corregido y **mergeado** v0.1.0, ver (f) |
 | `webtyp/weightsc` | **nuevo** | conversor offline safetensors → artifact (host-only) | 3 | pendiente — se escribe al corregir `weights`, ver (g) |
 | `webtyp/transformer` | **creado** | grafo del encoder + kernels CPU/WASM | 3 | [`transformer/docs/PLAN.md`](https://github.com/webtyp/transformer/blob/main/docs/PLAN.md) — etapa 1 en ejecución; la 2 sigue en [`docs/plans/transformer.md`](plans/transformer.md), espera P1b |
 | `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | [`docs/plans/agent.md`](plans/agent.md) |
@@ -413,21 +413,39 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   `Fetcher` propios, duplicando `storage.Conn` y `webtyp.com/fetch`. Ningún plan de esta ola
   escribió las restricciones; el checklist listaba los comandos pero nada fijaba *por qué*. La
   corrección está en **D8**.
+
+  **Cerrado.** `weights` #1 volvió con la tabla de reemplazos aplicada punto por punto —
+  `fetch`/`storage.Conn` en vez de los puertos propios, cabecera binaria en vez de
+  `encoding/json`, checksum y `total_len` obligatorios, rango de verificación declarado en la
+  cabecera, `Evict`/`CacheKey` usables— y `gotest -tinygo` en verde. `agent` #9 ya cumplía §1-4
+  desde el primer intento; solo le faltaba el rebase. Ambos mergeados y taggeados v0.1.0, ver la
+  tabla de abajo.
 - **(g) El conversor sale de `weights` a `webtyp/weightsc`.** Un `cmd/convert` con `os`, `flag` y
   `log` dentro del módulo rompe `gotest -tinygo` y `GOOS=js GOARCH=wasm go build ./...` de todo el
   repo, porque `./...` incluye `cmd/`. El ecosistema ya tiene el patrón para herramientas de
   build: `ormc` para `orm`, `ddlc` para `ddl`, `sitec` para `site`. El **writer** se queda en
   `weights` —no tiene dependencia de host y los tests de round-trip lo necesitan—; lo que se va es
   la CLI.
+- **(h) Un ejecutor que dice "rebasé" puede no haberlo hecho, y `git merge-tree` en modo
+  plumbing no siempre lo delata.** El commit de `agent` #9 que debía traer `AGENTS.md` copió el
+  archivo a mano en vez de rebasar contra `main`: se perdió la eliminación de
+  `docs/plans/weights.md` que `main` hizo en la misma ventana (el repo `weights` ya existe, el
+  plan canónico vive en su propio `docs/PLAN.md`), y el PR volvió con un
+  `modify/delete conflict` que `gh pr merge` rechazó pero que un `git merge-tree` de plumbing no
+  mostró con claridad. El mismo push también pisó el frontmatter de `docs/PLAN.md` —`STATUS`
+  volvió a `running`, se perdió el link `PR:`— porque partió de una copia vieja del archivo; lo
+  resolvió una llamada `codejob` en blanco antes de aprobar. **Verificación que sí lo detecta:**
+  un merge real en un worktree descartable (`git worktree add ... && git merge --no-commit`), no
+  el resumen del bot ni `git merge-tree` sin más.
 
-### Estado de la ola — 2026-09-19
+### Estado de la ola — 2026-09-20
 
 | Repositorio | Fase | Estado |
 |---|---|---|
 | `model`, `indexdb`, `storage` | 1 | **publicado** |
 | `vector`, `embed` (puerto), `vectordb` | 2 | **publicado** — `vector` v0.1.1 entregó los 3,3 GFLOPS de la puerta |
-| `agent` (migración a `webtyp.com`) | — | PR [#9](https://github.com/webtyp/agent/pull/9) **cumple su alcance**, en espera: falta rebase para traer `AGENTS.md`. El intento previo (#8) se cerró por commit vacío |
-| `weights` | 3 | PR [#1](https://github.com/webtyp/weights/pull/1) **devuelto con correcciones** (f) |
+| `agent` (migración a `webtyp.com`) | — | **publicado** — PR [#9](https://github.com/webtyp/agent/pull/9) corregido (h) y mergeado v0.1.0. El intento previo (#8) se había cerrado por commit vacío |
+| `weights` | 3 | **publicado** — PR [#1](https://github.com/webtyp/weights/pull/1) corregido (f) y mergeado v0.1.0 |
 | `transformer` | 3 | etapa 1 **en ejecución** — sesión 18091215561444816771 |
 | `tokenizer` | 3 | plan escrito, sin despachar |
 | `weightsc` | 3 | sin plan (g) |
