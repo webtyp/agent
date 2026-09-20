@@ -377,10 +377,10 @@ fallido.
 | `webtyp/vector` | **creado** | math vectorial, arena, top-k, códec LE | 2 | [`vector/docs/PLAN.md`](https://github.com/webtyp/vector/blob/main/docs/PLAN.md) |
 | `webtyp/embed` | **nuevo** | puerto `Embedder` (fase 2) + adaptador estático (fase 3) | 2 / 3 | [`docs/plans/embed.md`](plans/embed.md) |
 | `webtyp/vectordb` | **creado** | almacén de documentos + kNN + filtros + LRU | 2 | [`vectordb/docs/PLAN.md`](https://github.com/webtyp/vectordb/blob/main/docs/PLAN.md) |
-| `webtyp/tokenizer` | **nuevo** | texto → ids de tokens | 3 | [`docs/plans/tokenizer.md`](plans/tokenizer.md) |
+| `webtyp/tokenizer` | **creado** | BPE a nivel de byte, real (no WordPiece) → ids de tokens | 3 | [`tokenizer/docs/PLAN.md`](https://github.com/webtyp/tokenizer/blob/main/docs/PLAN.md) — despachado, ver (j) |
 | `webtyp/weights` | **creado** | formato de artifact int8 + caché en navegador | 3 | [PR #1](https://github.com/webtyp/weights/pull/1) corregido y **mergeado** v0.1.0, ver (f) |
-| `webtyp/weightsc` | **nuevo** | conversor offline safetensors → artifact (host-only) | 3 | pendiente — se escribe al corregir `weights`, ver (g) |
-| `webtyp/transformer` | **creado** | grafo del encoder + kernels CPU/WASM | 3 | etapa 1 **mergeada** v0.1.0 ([PR #1](https://github.com/webtyp/transformer/pull/1), ver (i)); la 2 —el grafo, ahora despachable, P1b resuelto— sigue en [`docs/plans/transformer.md`](plans/transformer.md) |
+| `webtyp/weightsc` | **creado** | conversor offline safetensors → artifact (host-only) | 3 | [`weightsc/docs/PLAN.md`](https://github.com/webtyp/weightsc/blob/main/docs/PLAN.md) — despachado, ver (j) |
+| `webtyp/transformer` | **creado** | grafo del encoder + kernels CPU/WASM | 3 | etapa 1 **mergeada** v0.1.0 ([PR #1](https://github.com/webtyp/transformer/pull/1), ver (i)); etapa 2 —el grafo real de `granite-embedding-97m-multilingual-r2`— [`transformer/docs/PLAN.md`](https://github.com/webtyp/transformer/blob/main/docs/PLAN.md), despachada, ver (j) |
 | `webtyp/agent` | modificar | contrato `MemoryStore` segregado + conformance | 4 | [`docs/plans/agent.md`](plans/agent.md) |
 | `webtyp/agentmemory` | **creado** | implementar `MemoryStore` sobre `orm` + `ddl` | 4 | pendiente — se escribe cuando `plans/agent.md` §2 cierre |
 | `webtyp/vector-storage` | congelar | referencia histórica JS + mapa de port | 0 | [`vector-storage/docs/PLAN.md`](https://github.com/webtyp/vector-storage/blob/main/docs/PLAN.md) |
@@ -448,6 +448,38 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
   que no reprodujo con ningún comando en esta máquina. Corregido: la llamada pasa por `Dot`, el
   README usa `tinygo test -target wasm -bench` y reporta el rango medido de verdad. Ver **P1** en
   [`PENDING_ITEMS.md`](PENDING_ITEMS.md) para el resultado y la decisión pendiente que abre.
+- **(j) La ola de P1b: `weightsc`, `tokenizer` creados, y la etapa 2 de `transformer`
+  despachada — con los tres planes verificados contra el modelo real, no contra un paper.**
+  Con P1b resuelto (`granite-embedding-97m-multilingual-r2`), se leyó directo el header real de
+  `model.safetensors` (74 tensores, nombres y shapes exactos) y el `tokenizer.json` real —
+  ninguno de los dos se infirió. Dos correcciones que ese trabajo encontró, antes de escribir
+  código:
+  - **El tokenizador es BPE a nivel de byte, no WordPiece.** El plan anterior
+    (`docs/plans/tokenizer.md`, ahora borrado — el repo ya existe) asumía WordPiece y excluía
+    BPE explícitamente porque "ningún candidato lo usa". Era cierto cuando se escribió y dejó
+    de serlo en cuanto P1b eligió Granite. El regex de referencia usa un *negative lookahead*
+    que el motor RE2 de Go no soporta — documentado en `tokenizer/docs/PLAN.md` con el
+    reemplazo manual, no delegado al ejecutor para que lo descubra solo.
+  - **El artifact ya tiene versiones cuantizadas publicadas por IBM** (`onnx/model_quint8_avx2.onnx`,
+    OpenVINO int8) — verificado listando el repo real, no asumido. No sirven como atajo: usan
+    un esquema asimétrico con zero-point que no cabe en `weights.TokenizerConfig`/`Tensor`
+    (que solo tiene `Scales []float32`, simétrico), y están adentro de un grafo ONNX, no son
+    tensores sueltos — extraerlos exigiría desempaquetar ese grafo y volver a cuantizar de
+    todos modos. `weightsc` sigue partiendo de `model.safetensors` (BF16, precisión completa,
+    formato trivial) por ser el camino sin ese rodeo, no por desconocer que el otro existe.
+  - **`transformer` etapa 2 no es un grafo genérico.** 12 cabezales (no 6, como benchmarkeó la
+    etapa 1), la capa 0 sin `attn_norm` (confirmado por el conteo real de 74 tensores), un MLP
+    con compuerta (`mlp.Wi` es `[3072,384]` = 2×1536, fusionado — confirmado leyendo el header,
+    no derivado), atención global/local alternada con dos `rope_theta` distintos. La firma de
+    `RoPE` (v0.1.0) cambia para tomar `theta` explícito — tenía `10000.0` fijo, un valor que
+    ningún candidato real usa; era una firma incompleta descubierta en su primer uso real, no
+    una API estable a la que sumarle un parámetro opcional.
+
+  Los tres — `weightsc`, `tokenizer`, `transformer` etapa 2 — están despachados
+  (`codejob`, sin argumentos, uno por repo). Cada `docs/PLAN.md` incluye la comparación de los
+  tres targets (`go test` nativo, `gotest` con Go stdlib a `js/wasm`, `gotest -tinygo`) como
+  parte de su entrega — es el dato que esta ola completa existe para producir: los límites
+  reales de TinyGo contra la stdlib de Go, medidos con el modelo real, no estimados.
 
 ### Estado de la ola — 2026-09-20
 
@@ -457,9 +489,9 @@ Notas, cada una es una decisión que alguien va a querer revertir sin leer el po
 | `vector`, `embed` (puerto), `vectordb` | 2 | **publicado** — `vector` v0.1.1 entregó los 3,3 GFLOPS de la puerta |
 | `agent` (migración a `webtyp.com`) | — | **publicado** — PR [#9](https://github.com/webtyp/agent/pull/9) corregido (h) y mergeado v0.1.0. El intento previo (#8) se había cerrado por commit vacío |
 | `weights` | 3 | **publicado** — PR [#1](https://github.com/webtyp/weights/pull/1) corregido (f) y mergeado v0.1.0 |
-| `transformer` | 3 | etapa 1 **publicada** — PR [#1](https://github.com/webtyp/transformer/pull/1) corregido (i) y mergeado v0.1.0. Benchmark ~313 ms, banda media — decisión humana pendiente, ver P1 |
-| `tokenizer` | 3 | plan escrito, sin despachar |
-| `weightsc` | 3 | sin plan (g) |
+| `transformer` | 3 | etapa 1 **publicada** v0.1.0 (i); etapa 2 **despachada** (`codejob`), ver (j) |
+| `tokenizer` | 3 | repo **creado**, plan **despachado** (`codejob`), ver (j) |
+| `weightsc` | 3 | repo **creado**, plan **despachado** (`codejob`), ver (j) |
 | `agent` (`MemoryStore` segregado), `agentmemory` | 4 | sin despachar |
 
 **P1b resuelto — 2026-09-20: `granite-embedding-97m-multilingual-r2`.** Decisión directa del
