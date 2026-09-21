@@ -41,11 +41,7 @@ func (p testToolProvider) Tools() []mcp.Tool {
 }
 
 func TestMain(m *testing.M) {
-	var err error
-	testMemory, err = NewSQLiteMemory(":memory:")
-	if err != nil {
-		panic(err)
-	}
+	testMemory = NewMemMemory()
 
 	srv, err := mcp.NewServer(
 		mcp.Config{Name: "test", Version: "1.0.0", Authorize: mcp.AllowAll},

@@ -210,10 +210,7 @@ func TestIntegration_ClinicHours(t *testing.T) {
 
 	// Setup Agent
 	// Memory
-	mem, err := NewSQLiteMemory(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create memory: %v", err)
-	}
+	mem := NewMemMemory()
 
 	client := NewOllamaClient(model)
 
@@ -256,7 +253,7 @@ func TestIntegration_SessionIsolation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	mem, _ := NewSQLiteMemory(":memory:")
+	mem := NewMemMemory()
 	client := NewOllamaClient("qwen2.5:7b")
 
 	agent, _ := New(Config{
