@@ -3,6 +3,8 @@ PLAN: "fix: agent — sacar context/time/net-http/encoding-json/uuid/map[K]V de 
 TAG: v0.5.0
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 5537164840897341207
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
