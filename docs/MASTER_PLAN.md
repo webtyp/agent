@@ -40,19 +40,28 @@ El flujo, que es lo que gobierna todo el resto del documento:
 
 | Momento | Dónde ocurre | ¿Necesita red? |
 |---|---|---|
-| Subir un documento | el backend tokeniza, embebe los chunks y **devuelve los vectores al cliente** | **sí** |
+| Subir un documento | el navegador tokeniza y embebe los chunks, localmente | **no — offline total** |
 | Guardar | texto + vectores quedan en IndexedDB (D2) | no |
 | **Buscar** | el navegador embebe la consulta y hace el kNN sobre la arena local | **no — offline total** |
 
-El backend no está ahí porque el navegador no pueda embeber: está porque es la máquina rápida
-y no hace esperar al usuario mientras se procesan diez chunks de 8 000 tokens. La data
-termina siempre del lado del cliente.
+**Sin excepción, y sin backend en el camino.** Una versión anterior de este plan mandaba la
+subida de documentos al backend "porque es la máquina rápida" — eso contradecía el objetivo
+mismo de esta sección: si subir un documento necesita red, no hay offline total, hay offline
+*para buscar nada más*. Corregido: los dos caminos —subir y buscar— corren enteros en el
+navegador, siempre, incluso con la máquina desconectada. El costo que esto tiene y cómo se
+paga (el chunk se achica, no el alcance) está en **D4c**.
 
-**La consecuencia que ordena todo el plan:** si la búsqueda es offline, el navegador necesita
-el modelo — no para los documentos, para la **consulta**. Y el vector de la consulta tiene
-que caer en el mismo espacio que los de los documentos, así que tienen que ser **los mismos
-pesos**. No hay forma de esquivarlo: un transformer que embebe 20 tokens tiene los mismos
-parámetros que uno que embebe 8 000; la entrada corta baja el cómputo, no el tamaño.
+El backend/Worker de D4 no desaparece: sigue existiendo para el caso *distinto* de indexar
+contenido que el operador de la aplicación posee de antemano (por ejemplo, el contenido
+estático de un sitio, indexado una vez en el build) — ahí no hay un usuario esperando en un
+navegador, así que la restricción de esta sección no aplica. Lo que este plan elimina es
+el backend como paso obligatorio de la subida de un documento **del usuario**.
+
+**La consecuencia que ordena todo el plan:** si todo —consulta y documento— es offline, el
+navegador necesita el modelo para **los dos**. Y los vectores de documento y de consulta
+tienen que caer en el mismo espacio, así que tienen que ser **los mismos pesos**. No hay
+forma de esquivarlo: un transformer que embebe 20 tokens tiene los mismos parámetros que uno
+que embebe 300; la entrada corta baja el cómputo, no el tamaño.
 
 Por eso el modelo se elige por el presupuesto del navegador (D5), y por eso hay **una sola
 implementación en Go** corriendo en tres targets (D4).
@@ -112,8 +121,9 @@ construyeron `storage`, `orm` y `ddl`.
         └───────│ weights    │  artifact int8 + caché IDB
                 └────────────┘
 
-   El navegador embebe CONSULTAS (~20 tokens, D4b).
-   El backend embebe DOCUMENTOS (chunks de hasta 8 K).
+   El navegador embebe CONSULTAS (~20 tokens, D4b) Y DOCUMENTOS (chunks chicos, D4c) — los
+   dos, siempre, sin red. Backend/Worker quedan para indexar contenido propio de la
+   aplicación, no para la subida de un usuario (§1).
    MISMO código Go, MISMOS pesos → un solo espacio vectorial (D4).
 ```
 
@@ -223,9 +233,9 @@ Lo que cambia entre entornos es el target de compilación, no el código ni los 
 
 | Target | Cómo compila | Qué embebe | Presupuesto |
 |---|---|---|---|
-| Navegador | TinyGo → WASM | **consultas** (~20 tokens) | descarga del artifact + un forward pass |
-| Backend | Go nativo | **documentos** (chunks de hasta 8 K) | la CPU del servidor |
-| Worker de Cloudflare | TinyGo → WASM | documentos, en despliegues en la nube | 128 MB por isolate |
+| Navegador | TinyGo → WASM | **consultas y documentos subidos por el usuario** (D4c) | descarga del artifact + un forward pass por chunk |
+| Backend | Go nativo | contenido propio de la aplicación, indexado por su operador (no la subida de un usuario — §1) | la CPU del servidor |
+| Worker de Cloudflare | TinyGo → WASM | mismo caso que el backend, en despliegues en la nube | 128 MB por isolate |
 
 Eso es lo que hace que los vectores sean comparables **para siempre y entre instalaciones**:
 no hay dos modelos que puedan divergir, porque no hay dos implementaciones.
@@ -242,7 +252,10 @@ El razonamiento está en D4b.
 
 ### D4b — El cómputo de una consulta es chico, y eso borra WebGPU
 
-WebGPU entró al plan para embeber **documentos** rápido. El navegador no embebe documentos.
+WebGPU entró al plan para embeber documentos grandes rápido. Ya no hace falta: D4c resuelve
+el costo de documento por el otro lado, achicando el chunk en vez de acelerando el cómputo.
+Lo que sigue es el argumento **original**, sobre la consulta (~20 tokens) nada más — se
+conserva tal cual quedó escrito, como registro de cómo se llegó a esta decisión.
 
 Un forward pass cuesta en proporción al largo de la secuencia. Una consulta de 20 tokens
 sobre 12 capas de 384 dims son **~428M MAC ≈ 856M FLOP** [calc]:
@@ -274,6 +287,60 @@ solo faltaba registrarlo en MFLOPS en vez de ns/op.
 cuando `transformer` exista, es el que confirma si la latencia sirve en un cuadro de
 búsqueda. Lo que la medición ya descartó es el escenario malo — que el cómputo obligara a
 bajar a la tabla estática de D5.
+
+### D4c — Subir un documento también es offline, y eso fija el tamaño de chunk
+
+**Corrección de diseño, 2026-09-21.** Una versión anterior de este plan mandaba la subida de
+un documento al backend, con el argumento de que un chunk de hasta 8 000 tokens es caro de
+procesar en el navegador. Eso resolvía el costo, pero rompía el objetivo de §1: si subir
+necesita red, no hay offline total. La subida tiene que ser tan offline como la búsqueda —
+mismo target, mismo modelo, sin excepción — así que lo que hay que resolver es el costo, no
+esquivarlo mandándolo a otra máquina.
+
+**El costo de un chunk largo no escala como el de una consulta.** D4b mide una consulta de 20
+tokens; a esa escala el término cuadrático de la atención (`seq² × dim`) es insignificante
+frente al lineal (QKV, proyección, FFN). A 8 000 tokens deja de serlo. Con la forma real de
+`bekko-embedding-v1-a8m` (4 capas, `global_attn_every_n_layers: 3` → capas 0 y 3 globales,
+1 y 2 locales con ventana 128 — `transformer/docs/LAST_PLAN_EXECUTED.md` etapa 3):
+
+```
+FLOP(seq) ≈ 2 × [ (QKV + proyección + FFN, lineal en seq) + (atención global, seq² × dim) ]
+          ≈ 19,3M × seq  +  3 072 × seq²                                           [calc]
+```
+
+Al mismo throughput medido de D4b (~3,3 GFLOPS escalares, TinyGo WASM):
+
+| `seq` (tokens/chunk) | FLOP | Tiempo estimado |
+|---|---|---|
+| 20 (consulta) | ~386M | ~120 ms — coincide con D4b |
+| 256 | ~5,1G | ~1,6 s |
+| 500 | ~9,6G | ~2,9 s |
+| 8 000 (el chunk de la versión anterior) | ~351G | **~106 s** — el escenario que este plan ya no permite |
+
+El término cuadrático es el que dispara el costo: a 8 000 tokens ya pesa más que todo el
+resto junto. No hay forma de bajar esto con más cómputo (D4b ya descartó WebGPU) — la única
+palanca disponible sin GPU es el tamaño del chunk.
+
+**Decisión: el chunk máximo para documentos embebidos en el navegador es 256 tokens**, no
+8 000. A esa escala el costo por chunk es ~1,6 s, dominado por el término lineal — un
+documento largo se trocea en más chunks en vez de chunks más caros, y el trabajo corre en
+segundo plano (Web Worker vía `webtyp.com/fetch`'s patrón de background jobs, o el
+equivalente que el módulo de `vectordb`/`agentmemory` ya use para lotes de inserción — D2) sin
+bloquear la pestaña. Un documento de 10 000 tokens son ~40 chunks × 1,6 s ≈ 64 s de
+procesamiento total, en background, offline — más lento que un backend, pero **cero
+dependencia de red**, que es el requisito real.
+
+**Consecuencia para `webtyp/vectordb` y `webtyp/agentmemory`:** el troceo (chunking) de un
+documento en unidades de ≤256 tokens es responsabilidad de quien sube el documento (la
+aplicación, vía `agentmemory.KnowledgeStore.SaveKnowledge` o el flujo que lo llame) — este
+índice fija el límite, no dónde se aplica. Ningún repositorio de esta ola necesita saber por
+qué es 256 y no otro número; solo que **no se le pasa al embebedor del navegador un texto de
+más de 256 tokens de una sola vez**.
+
+**Qué NO cambia:** el backend/Worker de D4 sigue existiendo para el caso donde no hay un
+usuario esperando en un navegador — contenido propio de la aplicación, indexado por su
+operador. Ahí el chunk grande (hasta 8 K, D0) sigue siendo válido, porque el costo lo paga
+una máquina que nadie está mirando en tiempo real.
 
 ### D5 — El presupuesto del navegador elige el modelo; el español lo restringe
 
@@ -621,8 +688,9 @@ la decisión se revisa.
 
 **Puerta de salida:** el mismo código Go produce **el mismo vector para el mismo texto** en
 los tres targets de D4 — navegador (WASM), backend (nativo) y Worker (WASM) — con igualdad
-bit a bit o dentro de una tolerancia documentada. Y un corpus real en español se indexa en el
-backend, viaja al cliente, y se busca **offline** con un recall@10 documentado.
+bit a bit o dentro de una tolerancia documentada. Y un corpus real en español se **sube y se
+embebe entero en el navegador** (chunks de ≤256 tokens, D4c), sin tocar la red, y se busca
+**offline** con un recall@10 documentado.
 
 Esa igualdad entre targets es el criterio que hace válido todo el plan: si los tres no
 coinciden, no hay un solo espacio vectorial y el requisito de no re-indexar nunca se cae.
