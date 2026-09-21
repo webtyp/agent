@@ -13,6 +13,7 @@ import (
 	webtypjson "webtyp.com/json"
 	"webtyp.com/mcp"
 	"webtyp.com/model"
+	"webtyp.com/unixid"
 )
 
 var testMemory MemoryStore
@@ -41,7 +42,11 @@ func (p testToolProvider) Tools() []mcp.Tool {
 }
 
 func TestMain(m *testing.M) {
-	testMemory = NewMemMemory()
+	idGen, err := unixid.NewUnixID()
+	if err != nil {
+		panic(err)
+	}
+	testMemory = NewMemMemory(idGen)
 
 	srv, err := mcp.NewServer(
 		mcp.Config{Name: "test", Version: "1.0.0", Authorize: mcp.AllowAll},

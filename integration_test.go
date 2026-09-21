@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"webtyp.com/unixid"
 )
 
 // Inline OllamaClient implementation for integration tests.
@@ -210,7 +212,11 @@ func TestIntegration_ClinicHours(t *testing.T) {
 
 	// Setup Agent
 	// Memory
-	mem := NewMemMemory()
+	idGen, err := unixid.NewUnixID()
+	if err != nil {
+		t.Fatalf("unixid.NewUnixID: %v", err)
+	}
+	mem := NewMemMemory(idGen)
 
 	client := NewOllamaClient(model)
 
@@ -253,7 +259,11 @@ func TestIntegration_SessionIsolation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	mem := NewMemMemory()
+	idGen, err := unixid.NewUnixID()
+	if err != nil {
+		t.Fatalf("unixid.NewUnixID: %v", err)
+	}
+	mem := NewMemMemory(idGen)
 	client := NewOllamaClient("qwen2.5:7b")
 
 	agent, _ := New(Config{

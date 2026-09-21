@@ -9,6 +9,7 @@ require (
 	webtyp.com/json v0.5.25
 	webtyp.com/mcp v0.2.30
 	webtyp.com/model v0.2.0
+	webtyp.com/unixid v0.2.28
 )
 
 require (
@@ -16,5 +17,4 @@ require (
 	webtyp.com/fetch v0.1.28 // indirect
 	webtyp.com/router v0.1.40 // indirect
 	webtyp.com/time v0.5.5 // indirect
-	webtyp.com/unixid v0.2.28 // indirect
 )

@@ -3,26 +3,26 @@ package agent
 import (
 	"context"
 	"sort"
-	"strings"
 	"sync"
 
-	"github.com/google/uuid"
+	"webtyp.com/fmt"
+	"webtyp.com/model"
 )
 
 // NewMemMemory returns an in-memory MemoryStore with no external dependency — the reference
 // implementation any other MemoryStore is checked against via conformance.Run. Not for
 // production use: SearchKnowledge does a case-insensitive substring match, not semantic
 // search (that requires an embedder, which this package deliberately does not depend on —
-// see MASTER_PLAN.md D7/§5). Safe for concurrent use.
-func NewMemMemory() MemoryStore {
-	return &memMemory{
-		sessions: make(map[string]bool),
-	}
+// see MASTER_PLAN.md D7/§5). idGen mints record ids — never construct a concrete generator
+// inside this package (model.IDGenerator's own doc comment says so); the caller injects one
+// (e.g. webtyp.com/unixid). Safe for concurrent use.
+func NewMemMemory(idGen model.IDGenerator) MemoryStore {
+	return &memMemory{idGen: idGen}
 }
 
 type memMemory struct {
 	mu        sync.Mutex
-	sessions  map[string]bool
+	idGen     model.IDGenerator
 	messages  []Message
 	episodes  []Episode
 	knowledge []Knowledge
@@ -30,16 +30,12 @@ type memMemory struct {
 }
 
 func (m *memMemory) EnsureSession(ctx context.Context, sessionID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.sessions[sessionID] = true
 	return nil
 }
 
 func (m *memMemory) AppendMessage(ctx context.Context, sessionID string, msg Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sessions[sessionID] = true
 	if msg.SessionID == "" {
 		msg.SessionID = sessionID
 	}
@@ -75,14 +71,9 @@ func (m *memMemory) DeleteMessages(ctx context.Context, sessionID string, ids []
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
 	var updated []Message
 	for _, msg := range m.messages {
-		if msg.SessionID == sessionID && idSet[msg.ID] {
+		if msg.SessionID == sessionID && containsString(ids, msg.ID) {
 			continue
 		}
 		updated = append(updated, msg)
@@ -94,8 +85,8 @@ func (m *memMemory) DeleteMessages(ctx context.Context, sessionID string, ids []
 func (m *memMemory) SaveEpisode(ctx context.Context, sessionID, summary string, tokenCount int, fromID, toID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sessions[sessionID] = true
 	m.episodes = append(m.episodes, Episode{
+		ID:         m.idGen.NewID(),
 		SessionID:  sessionID,
 		Summary:    summary,
 		TokenCount: tokenCount,
@@ -132,11 +123,8 @@ func (m *memMemory) GetEpisodes(ctx context.Context, sessionID string, limit int
 func (m *memMemory) SaveKnowledge(ctx context.Context, sessionID, content, source string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if sessionID != "" {
-		m.sessions[sessionID] = true
-	}
 	m.knowledge = append(m.knowledge, Knowledge{
-		ID:        uuid.New().String(),
+		ID:        m.idGen.NewID(),
 		SessionID: sessionID,
 		Content:   content,
 		Source:    source,
@@ -148,11 +136,11 @@ func (m *memMemory) SearchKnowledge(ctx context.Context, query, sessionID string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	q := strings.ToLower(query)
+	q := fmt.ToLower(query)
 	var matched []Knowledge
 	for _, k := range m.knowledge {
 		if k.SessionID == "" || k.SessionID == sessionID {
-			if strings.Contains(strings.ToLower(k.Content), q) {
+			if fmt.Contains(fmt.ToLower(k.Content), q) {
 				matched = append(matched, k)
 			}
 		}
@@ -170,8 +158,8 @@ func (m *memMemory) SearchKnowledge(ctx context.Context, query, sessionID string
 func (m *memMemory) LogToolCall(ctx context.Context, sessionID, toolName, inputJSON, outputText, errText string, durationMS int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sessions[sessionID] = true
 	m.toolLogs = append(m.toolLogs, ToolLog{
+		ID:         m.idGen.NewID(),
 		SessionID:  sessionID,
 		ToolName:   toolName,
 		InputJSON:  inputJSON,
@@ -206,4 +194,13 @@ func (m *memMemory) GetToolLogs(ctx context.Context, sessionID, toolName string,
 	res := make([]ToolLog, len(matched))
 	copy(res, matched)
 	return res, nil
+}
+
+func containsString(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
