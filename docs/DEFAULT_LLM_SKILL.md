@@ -13,7 +13,7 @@ Every Go file must have a single, well-defined purpose reflected in its name:
 - `types.go` — value types only
 - `fsm.go` — FSM logic only
 - `orchestrator.go` — ReAct loop only
-- `memory.go` — SQLite MemoryStore implementation only
+- `mem_memory.go` — in-memory reference MemoryStore only (no SQL, no driver)
 
 Files exceeding **500 lines MUST be split** and renamed by domain.
 
@@ -42,7 +42,6 @@ Packages **without** a `webtyp.com/` equivalent use stdlib directly: `net/http`,
 - `webtyp.com/json` — isomorphic encoding/json
 - `webtyp.com/context` — isomorphic context
 - `webtyp.com/time` — isomorphic time
-- `modernc.org/sqlite` — pure Go SQLite driver (supports `:memory:` out of the box)
 
 **Production Code (v2 — future):**
 - `github.com/asg017/sqlite-vec` — vector search extension (WASM-compatible)
@@ -102,14 +101,12 @@ Tests must be fast (no real I/O), deterministic, and side-effect free.
 ```go
 var (
     testServer *httptest.Server
-    testMemory agent.MemoryStore // shared SQLite :memory: instance
+    testMemory agent.MemoryStore // shared in-memory reference instance
 )
 
 func TestMain(m *testing.M) {
-    // SQLite :memory: — no disk writes, fully isolated per-process, fast.
-    // One shared instance for the whole test package; session isolation is
-    // guaranteed by the session_id column in every table (see history/MEMORY_SQLITE.md, section 2.3).
-    testMemory = agent.NewSQLiteMemory(":memory:")
+    // In-memory reference implementation — no disk writes, no dependencies, fast.
+    testMemory = agent.NewMemMemory()
 
     srv, _ := mcp.NewServer(mcp.Config{Name: "test", Version: "1.0.0", Authorize: mcp.AllowAll}, []mcp.ToolProvider{testToolProvider{}})
     testServer = httptest.NewServer(http.HandlerFunc(...))
@@ -117,21 +114,14 @@ func TestMain(m *testing.M) {
 }
 ```
 
-**Per-test session isolation:** Each test function uses a unique `sessionID` derived from `t.Name()` to avoid cross-test state contamination in the shared `:memory:` database:
+**Per-test session isolation:** Each test function uses a unique `sessionID` derived from `t.Name()` to avoid cross-test state contamination in memory:
 
 ```go
 func TestReAct_ToolCallThenAnswer(t *testing.T) {
     sessionID := t.Name() // e.g. "TestReAct_ToolCallThenAnswer"
     // testMemory.EnsureSession(ctx, sessionID) creates an isolated namespace
-    // No teardown needed — the :memory: DB is discarded at process exit.
 }
 ```
-
-> **Why `:memory:` (not a temp file)?**
-> - No disk I/O → tests run significantly faster.
-> - No leftover files on test failure.
-> - `modernc.org/sqlite` supports `:memory:` natively with the same SQL API as on-disk SQLite.
-> - Session isolation by `session_id` makes a single shared instance sufficient for all tests.
 
 
 ---

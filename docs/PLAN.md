@@ -3,8 +3,9 @@ PLAN: "feat: agent — MemoryStore segregado en 4 contratos + backend mem + suit
 TAG: v0.4.0
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 9716843894652945299
+PR: https://github.com/webtyp/agent/pull/10
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
@@ -141,14 +142,12 @@ import (
 // search (that requires an embedder, which this package deliberately does not depend on —
 // see MASTER_PLAN.md D7/§5). Safe for concurrent use.
 func NewMemMemory() MemoryStore {
-	return &memMemory{
-		sessions:  make(map[string]bool),
-	}
+	return &memMemory{}
 }
 
 type memMemory struct {
 	mu        sync.Mutex
-	sessions  map[string]bool
+	sessions  []string // membership only — see note below on why this isn't a map
 	messages  []Message
 	episodes  []Episode
 	knowledge []Knowledge
@@ -156,16 +155,21 @@ type memMemory struct {
 }
 ```
 
-**No uses `map[K]V` para nada que no sea "¿existe esta sesión?"** — `sessions` es un chequeo
-de membresía, no una tabla que se recorre; el resto (`messages`, `episodes`, `knowledge`,
-`toolLogs`) son slices escaneados linealmente, filtrando por `sessionID` en cada método. Este
-repo no compila bajo TinyGo hoy (`modernc.org/sqlite` lo bloqueaba — con este plan deja de
-bloquearlo), así que la regla de `map[K]V` de `AGENTS.md` empieza a aplicar de verdad acá en
-cuanto este archivo se escribe: no la violes justo en el archivo que la habilita.
+**Ni `sessions` ni nada más acá es un `map[K]V` — cero excepciones.** `AGENTS.md` prohíbe
+`map[K]V` sin salvedad de tamaño ni de uso ("Never: `map[K]V` | Use instead: a slice scanned
+linearly"), y el checklist de este mismo plan lo verifica con
+`grep -rn "map\[" --include="*.go" . | grep -v _test.go` → vacío. `sessions` es
+`[]string`, y un chequeo de membresía es un loop lineal (`for _, s := range sessions { if s
+== sessionID { ... } }`) — con la cantidad de sesiones concurrentes que maneja un agente
+(decenas, no miles) esto no es un problema de performance, es la misma regla que
+`vectordb.Store.hashes`/`docIDByHash` ya aplica (`vectordb/types.go`, comentario "No maps").
+Este repo no compila bajo TinyGo hoy (`modernc.org/sqlite` lo bloqueaba — con este plan deja
+de bloquearlo), así que la regla empieza a aplicar de verdad acá en cuanto este archivo se
+escribe.
 
-Implementá los 11 métodos sobre esos 4 slices:
+Implementá los 11 métodos sobre esos 4+1 slices:
 
-- `EnsureSession`: pone `sessionID` en `sessions[sessionID] = true`; idempotente.
+- `EnsureSession`: si `sessionID` no está en `sessions` (loop lineal), agregalo; idempotente.
 - `AppendMessage`/`GetMessages`/`DeleteMessages`: filtran `messages` por `SessionID`.
   `GetMessages` devuelve los `limit` más recientes por `CreatedAt` (si `CreatedAt` es 0 para
   todos porque el caller no lo puso, preservá el orden de inserción — no falles).
