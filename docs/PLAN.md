@@ -3,6 +3,8 @@ PLAN: "feat: agent — MemoryStore segregado en 4 contratos + backend mem + suit
 TAG: v0.4.0
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 9716843894652945299
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
