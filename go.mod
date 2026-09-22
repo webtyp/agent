@@ -6,7 +6,7 @@ require (
 	webtyp.com/context v0.0.23
 	webtyp.com/fmt v1.0.0
 	webtyp.com/json v0.5.25
-	webtyp.com/mcp v0.2.31
+	webtyp.com/mcp v0.2.32
 	webtyp.com/model v0.2.0
 	webtyp.com/time v0.5.5
 	webtyp.com/unixid v0.2.28
