@@ -1,18 +1,36 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"webtyp.com/context"
+	"webtyp.com/fmt"
+	webtypjson "webtyp.com/json"
+	"webtyp.com/mcp"
 )
 
+type jsonRPCRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      string          `json:"id,omitempty"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type jsonRPCResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      string          `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+}
+
 func TestMCPClient_Discovery(t *testing.T) {
-	// Mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
 		var req jsonRPCRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -38,15 +56,15 @@ func TestMCPClient_Discovery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewHTTPMCPClient(server.URL)
+	client := NewHTTPMCPClient(server.URL, 30000)
 	res, err := client.Call(context.Background(), "tools/list", nil)
 	if err != nil {
 		t.Fatalf("Call failed: %v", err)
 	}
 
 	var list listToolsResult
-	if err := json.Unmarshal(res, &list); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
+	if err := webtypjson.Decode(res, &list); err != nil {
+		t.Fatalf("Decode failed: %v", err)
 	}
 
 	if len(list.Tools) != 1 {
@@ -66,22 +84,12 @@ func TestMCPClient_CallTool(t *testing.T) {
 		}
 
 		if req.Method == "tools/call" {
-			// Check params
-			// We expect params to be map with name and arguments
-			// But here we just mock response
-
+			var resultBytes []byte
+			webtypjson.Encode(mcp.Text("tool output"), &resultBytes)
 			resp := jsonRPCResponse{
 				JSONRPC: "2.0",
 				ID:      req.ID,
-				Result: json.RawMessage(`{
-					"content": [
-						{
-							"type": "text",
-							"text": "tool output"
-						}
-					],
-					"isError": false
-				}`),
+				Result:  resultBytes,
 			}
 			json.NewEncoder(w).Encode(resp)
 			return
@@ -90,24 +98,21 @@ func TestMCPClient_CallTool(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewHTTPMCPClient(server.URL)
-	res, err := client.Call(context.Background(), "tools/call", map[string]any{
-		"name": "test_tool",
-		"arguments": map[string]any{},
+	client := NewHTTPMCPClient(server.URL, 30000)
+	res, err := client.Call(context.Background(), "tools/call", &mcp.CallToolParams{
+		Name:      "test_tool",
+		Arguments: "{}",
 	})
 	if err != nil {
 		t.Fatalf("Call failed: %v", err)
 	}
 
-	var result callToolResult
-	if err := json.Unmarshal(res, &result); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
+	result, err := mcp.ParseResult(res)
+	if err != nil {
+		t.Fatalf("ParseResult failed: %v", err)
 	}
 
-	if len(result.Content) != 1 {
-		t.Errorf("expected 1 content block, got %d", len(result.Content))
-	}
-	if result.Content[0].Text != "tool output" {
-		t.Errorf("expected output 'tool output', got '%s'", result.Content[0].Text)
+	if !fmt.Contains(result.Content, "tool output") {
+		t.Errorf("expected output to contain 'tool output', got '%s'", result.Content)
 	}
 }

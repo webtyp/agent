@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"context"
 	"sort"
 	"sync"
 
+	"webtyp.com/context"
 	"webtyp.com/fmt"
 	"webtyp.com/model"
 )
@@ -29,11 +29,11 @@ type memMemory struct {
 	toolLogs  []ToolLog
 }
 
-func (m *memMemory) EnsureSession(ctx context.Context, sessionID string) error {
+func (m *memMemory) EnsureSession(ctx *context.Context, sessionID string) error {
 	return nil
 }
 
-func (m *memMemory) AppendMessage(ctx context.Context, sessionID string, msg Message) error {
+func (m *memMemory) AppendMessage(ctx *context.Context, sessionID string, msg Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if msg.SessionID == "" {
@@ -43,7 +43,7 @@ func (m *memMemory) AppendMessage(ctx context.Context, sessionID string, msg Mes
 	return nil
 }
 
-func (m *memMemory) GetMessages(ctx context.Context, sessionID string, limit int) ([]Message, error) {
+func (m *memMemory) GetMessages(ctx *context.Context, sessionID string, limit int) ([]Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -67,7 +67,7 @@ func (m *memMemory) GetMessages(ctx context.Context, sessionID string, limit int
 	return res, nil
 }
 
-func (m *memMemory) DeleteMessages(ctx context.Context, sessionID string, ids []string) error {
+func (m *memMemory) DeleteMessages(ctx *context.Context, sessionID string, ids []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -82,7 +82,7 @@ func (m *memMemory) DeleteMessages(ctx context.Context, sessionID string, ids []
 	return nil
 }
 
-func (m *memMemory) SaveEpisode(ctx context.Context, sessionID, summary string, tokenCount int, fromID, toID string) error {
+func (m *memMemory) SaveEpisode(ctx *context.Context, sessionID, summary string, tokenCount int, fromID, toID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.episodes = append(m.episodes, Episode{
@@ -96,7 +96,7 @@ func (m *memMemory) SaveEpisode(ctx context.Context, sessionID, summary string, 
 	return nil
 }
 
-func (m *memMemory) GetEpisodes(ctx context.Context, sessionID string, limit int) ([]Episode, error) {
+func (m *memMemory) GetEpisodes(ctx *context.Context, sessionID string, limit int) ([]Episode, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -120,7 +120,7 @@ func (m *memMemory) GetEpisodes(ctx context.Context, sessionID string, limit int
 	return res, nil
 }
 
-func (m *memMemory) SaveKnowledge(ctx context.Context, sessionID, content, source string) error {
+func (m *memMemory) SaveKnowledge(ctx *context.Context, sessionID, content, source string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.knowledge = append(m.knowledge, Knowledge{
@@ -132,7 +132,7 @@ func (m *memMemory) SaveKnowledge(ctx context.Context, sessionID, content, sourc
 	return nil
 }
 
-func (m *memMemory) SearchKnowledge(ctx context.Context, query, sessionID string, limit int) ([]Knowledge, error) {
+func (m *memMemory) SearchKnowledge(ctx *context.Context, query, sessionID string, limit int) ([]Knowledge, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -155,7 +155,7 @@ func (m *memMemory) SearchKnowledge(ctx context.Context, query, sessionID string
 	return res, nil
 }
 
-func (m *memMemory) LogToolCall(ctx context.Context, sessionID, toolName, inputJSON, outputText, errText string, durationMS int64) error {
+func (m *memMemory) LogToolCall(ctx *context.Context, sessionID, toolName, inputJSON, outputText, errText string, durationMS int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.toolLogs = append(m.toolLogs, ToolLog{
@@ -170,7 +170,7 @@ func (m *memMemory) LogToolCall(ctx context.Context, sessionID, toolName, inputJ
 	return nil
 }
 
-func (m *memMemory) GetToolLogs(ctx context.Context, sessionID, toolName string, limit int) ([]ToolLog, error) {
+func (m *memMemory) GetToolLogs(ctx *context.Context, sessionID, toolName string, limit int) ([]ToolLog, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

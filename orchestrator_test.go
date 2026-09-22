@@ -1,9 +1,10 @@
 package agent
 
 import (
-	"context"
-	"strings"
 	"testing"
+
+	"webtyp.com/context"
+	"webtyp.com/fmt"
 )
 
 func TestReAct_ToolCallThenAnswer(t *testing.T) {
@@ -13,9 +14,9 @@ func TestReAct_ToolCallThenAnswer(t *testing.T) {
 
 	// Mock LLM
 	mockLLM := &MockLLMClient{
-		GenerateFunc: func(ctx context.Context, req LLMRequest) (LLMResponse, error) {
+		GenerateFunc: func(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
 			// Check if reflection
-			if strings.Contains(req.SystemPrompt, "critic that evaluates") {
+			if fmt.Contains(req.SystemPrompt, "critic that evaluates") {
 				return LLMResponse{
 					Text:       "SUFFICIENT",
 					TokensUsed: 10,
@@ -61,6 +62,7 @@ func TestReAct_ToolCallThenAnswer(t *testing.T) {
 			Primary: mockLLM,
 		},
 		Memory:     testMemory,
+		IDGen:      testIDGen,
 		MCPServers: []string{testServer.URL},
 	}
 
@@ -85,8 +87,8 @@ func TestReAct_ReflectionApproved(t *testing.T) {
 	testMemory.EnsureSession(ctx, sessionID)
 
 	mockLLM := &MockLLMClient{
-		GenerateFunc: func(ctx context.Context, req LLMRequest) (LLMResponse, error) {
-			if strings.Contains(req.SystemPrompt, "critic that evaluates") {
+		GenerateFunc: func(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
+			if fmt.Contains(req.SystemPrompt, "critic that evaluates") {
 				return LLMResponse{Text: "SUFFICIENT", StopReason: "end_turn"}, nil
 			}
 			return LLMResponse{Text: "Answer", StopReason: "end_turn"}, nil
@@ -95,8 +97,9 @@ func TestReAct_ReflectionApproved(t *testing.T) {
 
 	cfg := Config{
 		Identity: IdentityConfig{Name: "Bot"},
-		LLMs: LLMConfig{Primary: mockLLM},
-		Memory: testMemory,
+		LLMs:     LLMConfig{Primary: mockLLM},
+		Memory:   testMemory,
+		IDGen:    testIDGen,
 	}
 
 	agent, _ := New(cfg)
@@ -116,8 +119,8 @@ func TestReAct_ReflectionRetry(t *testing.T) {
 
 	attempts := 0
 	mockLLM := &MockLLMClient{
-		GenerateFunc: func(ctx context.Context, req LLMRequest) (LLMResponse, error) {
-			if strings.Contains(req.SystemPrompt, "critic that evaluates") {
+		GenerateFunc: func(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
+			if fmt.Contains(req.SystemPrompt, "critic that evaluates") {
 				attempts++
 				if attempts == 1 {
 					return LLMResponse{Text: "INSUFFICIENT. Missing detail.", StopReason: "end_turn"}, nil
@@ -127,7 +130,7 @@ func TestReAct_ReflectionRetry(t *testing.T) {
 			// If we see "Reflection feedback" in history, generate improved answer
 			hasFeedback := false
 			for _, m := range req.Messages {
-				if strings.Contains(m.Content, "Reflection feedback") {
+				if fmt.Contains(m.Content, "Reflection feedback") {
 					hasFeedback = true
 					break
 				}
@@ -141,8 +144,9 @@ func TestReAct_ReflectionRetry(t *testing.T) {
 
 	cfg := Config{
 		Identity: IdentityConfig{Name: "Bot"},
-		LLMs: LLMConfig{Primary: mockLLM},
-		Memory: testMemory,
+		LLMs:     LLMConfig{Primary: mockLLM},
+		Memory:   testMemory,
+		IDGen:    testIDGen,
 	}
 
 	agent, _ := New(cfg)
@@ -161,15 +165,15 @@ func TestReAct_ToolErrorSelfCorrect(t *testing.T) {
 	testMemory.EnsureSession(ctx, sessionID)
 
 	mockLLM := &MockLLMClient{
-		GenerateFunc: func(ctx context.Context, req LLMRequest) (LLMResponse, error) {
-			if strings.Contains(req.SystemPrompt, "critic") {
+		GenerateFunc: func(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
+			if fmt.Contains(req.SystemPrompt, "critic") {
 				return LLMResponse{Text: "SUFFICIENT", StopReason: "end_turn"}, nil
 			}
 
 			// Check for tool error in history
 			hasError := false
 			for _, m := range req.Messages {
-				if m.Role == "tool" && strings.Contains(m.Content, "Error") {
+				if m.Role == "tool" && fmt.Contains(m.Content, "Error") {
 					hasError = true
 					break
 				}
@@ -180,7 +184,7 @@ func TestReAct_ToolErrorSelfCorrect(t *testing.T) {
 				return LLMResponse{
 					Text:       "Trying tool",
 					StopReason: "tool_use",
-					ToolCalls: []ToolCall{{Name: "unknown_tool", Input: "{}"}},
+					ToolCalls:  []ToolCall{{Name: "unknown_tool", Input: "{}"}},
 				}, nil
 			}
 			// Correct
@@ -190,8 +194,9 @@ func TestReAct_ToolErrorSelfCorrect(t *testing.T) {
 
 	cfg := Config{
 		Identity: IdentityConfig{Name: "Bot"},
-		LLMs: LLMConfig{Primary: mockLLM},
-		Memory: testMemory,
+		LLMs:     LLMConfig{Primary: mockLLM},
+		Memory:   testMemory,
+		IDGen:    testIDGen,
 	}
 
 	agent, _ := New(cfg)
@@ -210,21 +215,22 @@ func TestReAct_MaxIterationsGuard(t *testing.T) {
 	testMemory.EnsureSession(ctx, sessionID)
 
 	mockLLM := &MockLLMClient{
-		GenerateFunc: func(ctx context.Context, req LLMRequest) (LLMResponse, error) {
+		GenerateFunc: func(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
 			// Always call tool
 			return LLMResponse{
 				Text:       "Looping",
 				StopReason: "tool_use",
-				ToolCalls: []ToolCall{{Name: "calculator", Input: `{"a": 1, "b": 1}`}},
+				ToolCalls:  []ToolCall{{Name: "calculator", Input: `{"a": 1, "b": 1}`}},
 			}, nil
 		},
 	}
 
 	cfg := Config{
-		Identity: IdentityConfig{Name: "Bot"},
-		LLMs: LLMConfig{Primary: mockLLM},
-		Memory: testMemory,
-		MCPServers: []string{testServer.URL},
+		Identity:      IdentityConfig{Name: "Bot"},
+		LLMs:          LLMConfig{Primary: mockLLM},
+		Memory:        testMemory,
+		IDGen:         testIDGen,
+		MCPServers:    []string{testServer.URL},
 		MaxIterations: 3,
 	}
 
@@ -233,15 +239,11 @@ func TestReAct_MaxIterationsGuard(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error due to max iterations, got nil")
 	}
-	if !strings.Contains(err.Error(), "max iterations reached") {
+	if !fmt.Contains(err.Error(), "max iterations reached") {
 		t.Errorf("expected 'max iterations reached', got %v", err)
 	}
 }
 
-// TestOrchestrator_RealMCP verifies the full MCP protocol integration path:
-// tool discovery from a real mcp.Server → tool execution via JSON-RPC → result propagation.
-// Unlike TestReAct_ToolCallThenAnswer (which uses hardcoded tool names), this test
-// asserts that tools are dynamically discovered and called by name from the registry.
 func TestOrchestrator_RealMCP(t *testing.T) {
 	sessionID := t.Name()
 	ctx := context.Background()
@@ -249,8 +251,8 @@ func TestOrchestrator_RealMCP(t *testing.T) {
 
 	toolCalled := false
 	mockLLM := &MockLLMClient{
-		GenerateFunc: func(ctx context.Context, req LLMRequest) (LLMResponse, error) {
-			if strings.Contains(req.SystemPrompt, "critic that evaluates") {
+		GenerateFunc: func(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
+			if fmt.Contains(req.SystemPrompt, "critic that evaluates") {
 				return LLMResponse{Text: "SUFFICIENT", StopReason: "end_turn"}, nil
 			}
 			// Verify tools were discovered from the real MCP server.
@@ -260,7 +262,6 @@ func TestOrchestrator_RealMCP(t *testing.T) {
 			}
 			if !toolCalled {
 				toolCalled = true
-				// Call the first discovered tool by its actual name (not hardcoded).
 				return LLMResponse{
 					StopReason: "tool_use",
 					ToolCalls:  []ToolCall{{ID: "mcp1", Name: req.Tools[0].Name, Input: `{"a":3,"b":4}`}},
@@ -275,6 +276,7 @@ func TestOrchestrator_RealMCP(t *testing.T) {
 		Identity:   IdentityConfig{Name: "Bot"},
 		LLMs:       LLMConfig{Primary: mockLLM},
 		Memory:     testMemory,
+		IDGen:      testIDGen,
 		MCPServers: []string{testServer.URL},
 	}
 

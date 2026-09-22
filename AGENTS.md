@@ -31,18 +31,7 @@ GOOS=js GOARCH=wasm go build ./...
 tinygo build -target wasm -o /dev/null .
 ```
 
-**Today the last two fail**, because the root package imports `modernc.org/sqlite`:
-
-```
-package webtyp.com/agent
-	imports modernc.org/sqlite
-	imports modernc.org/libc
-	imports modernc.org/libc/unistd: build constraints exclude all Go files
-```
-
-That is known debt with a plan attached (see "Known debt" below). It is **not** a licence to add
-more: no new import may make it worse, and every new file must compile under `GOOS=js GOARCH=wasm`
-on its own.
+Every file must compile under `GOOS=js GOARCH=wasm` and TinyGo on its own.
 
 ---
 
@@ -101,6 +90,12 @@ HTTP client does not.
   host-only test code, and it must live behind the host build).
 - Publish with `gopush 'message'` — never `git commit`/`git push` directly.
 
+### Test layout — excepción documentada
+
+Los tests white-box existentes en el paquete raíz (`package agent`) para FSM, registry e internals
+se mantienen en la raíz porque moverlos a `tests/` requeriría exportar internals innecesariamente.
+Cualquier test nuevo que solo consuma la API pública debe ir en `package agent_test` o en `tests/`, nunca en `package agent`.
+
 ---
 
 ## Known debt (do not extend, do not "fix" ad hoc)
@@ -108,10 +103,6 @@ HTTP client does not.
 | Debt | Where it goes |
 |---|---|
 | `SQLiteMemoryStore` + `schema` in the root package | `webtyp/agentmemory`; this repo keeps the port + conformance suite |
-| stdlib `context` in the library API | `webtyp.com/context` |
-| `net/http` in `mcp_client.go` | `webtyp.com/fetch` |
-| `encoding/json` throughout | `webtyp.com/json` |
-| `github.com/google/uuid` | `webtyp.com/unixid` |
 
 Each of these moves under its own `docs/PLAN.md`, dispatched deliberately. Do not bundle them into
 an unrelated PR, and do not leave one half-done.

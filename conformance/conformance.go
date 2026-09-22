@@ -1,10 +1,10 @@
 package conformance
 
 import (
-	"context"
 	"testing"
 
 	"webtyp.com/agent"
+	"webtyp.com/context"
 )
 
 // Factory builds a fresh, empty agent.MemoryStore for ONE test. Called once per subtest —
