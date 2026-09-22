@@ -1,8 +1,7 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
+	"webtyp.com/context"
 )
 
 // MockMCPClient implements mcpCaller with an injectable function field.
@@ -12,10 +11,10 @@ import (
 var _ mcpCaller = (*MockMCPClient)(nil)
 
 type MockMCPClient struct {
-	CallFunc func(ctx context.Context, method string, params any) (json.RawMessage, error)
+	CallFunc func(ctx *context.Context, method string, params any) ([]byte, error)
 }
 
-func (m *MockMCPClient) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+func (m *MockMCPClient) Call(ctx *context.Context, method string, params any) ([]byte, error) {
 	if m.CallFunc != nil {
 		return m.CallFunc(ctx, method, params)
 	}

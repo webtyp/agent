@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"time"
+	"webtyp.com/model"
 )
 
 // Agent is the entry point for all agent operations.
@@ -12,16 +12,12 @@ type Agent struct {
 	llms     LLMConfig
 	registry *mcpRegistry
 	fsm      *fsm
+	idGen    model.IDGenerator
 }
-
-// Run executes the full ReAct + Reflection loop for a single user query.
-// sessionID scopes all memory reads/writes to an isolated conversation.
-// Note: This is a placeholder for the method signature. The implementation will be in orchestrator.go or agent.go.
-// func (a *Agent) Run(ctx context.Context, sessionID, userQuery string) (string, error)
 
 // Message represents a single turn in the conversation. Stored in the messages table.
 type Message struct {
-	ID         string // UUID
+	ID         string // UUID or unixid
 	SessionID  string
 	Role       string // "user" | "assistant" | "system" | "tool"
 	Content    string // text content or tool result JSON
@@ -106,8 +102,9 @@ type ContextWindowConfig struct {
 // Config is the configuration struct for New().
 type Config struct {
 	Identity IdentityConfig
-	LLMs     LLMConfig   // required: LLMs.Primary != nil
-	Memory   MemoryStore // required
+	LLMs     LLMConfig        // required: LLMs.Primary != nil
+	Memory   MemoryStore      // required
+	IDGen    model.IDGenerator // required
 
 	// Tool sources — merged at startup into internal tool registry
 	LocalTools  []Tool      // direct in-process tools
@@ -116,9 +113,9 @@ type Config struct {
 
 	// Runtime tunables
 	ContextWindow ContextWindowConfig
-	MaxIterations int           // max Reasoning→Acting cycles (default: 10)
-	MaxRetries    int           // max consecutive Acting failures before Responding (default: 3)
-	MCPTimeout    time.Duration // default: 30s
+	MaxIterations int // max Reasoning→Acting cycles (default: 10)
+	MaxRetries    int // max consecutive Acting failures before Responding (default: 3)
+	MCPTimeoutMS  int // default: 30000 (30s)
 }
 
 // IdentityConfig defines the agent's persona.

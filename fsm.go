@@ -29,13 +29,21 @@ func (s State) String() string {
 	}
 }
 
-// allowed defines valid transitions: from -> []to
-var allowed = map[State][]State{
-	StateIdle:       {StateReasoning},
-	StateReasoning:  {StateActing, StateReflecting, StateResponding},
-	StateActing:     {StateReasoning, StateResponding},
-	StateReflecting: {StateReasoning, StateResponding},
-	StateResponding: {StateIdle},
+func allowedFrom(s State) []State {
+	switch s {
+	case StateIdle:
+		return []State{StateReasoning}
+	case StateReasoning:
+		return []State{StateActing, StateReflecting, StateResponding}
+	case StateActing:
+		return []State{StateReasoning, StateResponding}
+	case StateReflecting:
+		return []State{StateReasoning, StateResponding}
+	case StateResponding:
+		return []State{StateIdle}
+	default:
+		return nil
+	}
 }
 
 type fsm struct {
@@ -43,7 +51,7 @@ type fsm struct {
 }
 
 func (f *fsm) transition(to State) error {
-	for _, s := range allowed[f.current] {
+	for _, s := range allowedFrom(f.current) {
 		if s == to {
 			f.current = to
 			return nil

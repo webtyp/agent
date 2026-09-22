@@ -17,6 +17,7 @@ import (
 )
 
 var testMemory MemoryStore
+var testIDGen model.IDGenerator
 var testServer *httptest.Server
 
 type testToolProvider struct{}
@@ -46,6 +47,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	testIDGen = idGen
 	testMemory = NewMemMemory(idGen)
 
 	srv, err := mcp.NewServer(

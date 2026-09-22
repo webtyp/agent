@@ -1,11 +1,12 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"webtyp.com/context"
 )
 
 func TestMCPRegistry_AddMCPClient(t *testing.T) {
@@ -36,7 +37,7 @@ func TestMCPRegistry_AddMCPClient(t *testing.T) {
 	defer server.Close()
 
 	registry := newMCPRegistry()
-	client := NewHTTPMCPClient(server.URL)
+	client := NewHTTPMCPClient(server.URL, 30000)
 
 	if err := registry.addMCPClient(context.Background(), client); err != nil {
 		t.Fatalf("addMCPClient failed: %v", err)
@@ -53,16 +54,16 @@ func TestMCPRegistry_AddMCPClient(t *testing.T) {
 
 // MockTool implements Tool interface for testing local tools
 type MockTool struct {
-	NameVal        string
-	DescVal        string
-	SchemaVal      string
-	ExecuteFunc    func(ctx context.Context, argsJSON string) (string, error)
+	NameVal     string
+	DescVal     string
+	SchemaVal   string
+	ExecuteFunc func(ctx *context.Context, argsJSON string) (string, error)
 }
 
-func (m *MockTool) Name() string { return m.NameVal }
+func (m *MockTool) Name() string        { return m.NameVal }
 func (m *MockTool) Description() string { return m.DescVal }
 func (m *MockTool) InputSchema() string { return m.SchemaVal }
-func (m *MockTool) Execute(ctx context.Context, argsJSON string) (string, error) {
+func (m *MockTool) Execute(ctx *context.Context, argsJSON string) (string, error) {
 	if m.ExecuteFunc != nil {
 		return m.ExecuteFunc(ctx, argsJSON)
 	}
@@ -72,8 +73,8 @@ func (m *MockTool) Execute(ctx context.Context, argsJSON string) (string, error)
 func TestMCPRegistry_LocalTool(t *testing.T) {
 	registry := newMCPRegistry()
 	localTool := &MockTool{
-		NameVal: "local_tool",
-		DescVal: "Local tool",
+		NameVal:   "local_tool",
+		DescVal:   "Local tool",
 		SchemaVal: `{"type": "object"}`,
 	}
 	registry.addLocalTool(localTool)

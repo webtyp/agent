@@ -1,24 +1,21 @@
 package agent
 
 import (
-	"context"
-	"fmt"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/google/uuid"
+	"webtyp.com/context"
+	"webtyp.com/fmt"
+	"webtyp.com/time"
 )
 
 func TestContextWindow_Summarize(t *testing.T) {
-	sessionID := t.Name() // Isolated session
+	sessionID := t.Name()
 	ctx := context.Background()
 	testMemory.EnsureSession(ctx, sessionID)
 
 	mockLLM := &MockLLMClient{
-		GenerateFunc: func(ctx context.Context, req LLMRequest) (LLMResponse, error) {
-			// If requested to summarize
-			if strings.Contains(req.SystemPrompt, "summarizes conversations") {
+		GenerateFunc: func(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
+			if fmt.Contains(req.SystemPrompt, "summarizes conversations") {
 				return LLMResponse{
 					Text:       "Summary of conversation",
 					TokensUsed: 10,
@@ -37,51 +34,38 @@ func TestContextWindow_Summarize(t *testing.T) {
 				Summarizer: mockLLM,
 			},
 			Memory: testMemory,
+			IDGen:  testIDGen,
 			ContextWindow: ContextWindowConfig{
-				MaxTokens:     100, // Small limit
-				SummarizeAt:   0.5, // Trigger at 50 tokens
+				MaxTokens:     100,
+				SummarizeAt:   0.5,
 				MaxRecentMsgs: 10,
 				MaxEpisodes:   5,
 			},
 		},
-		mem:  testMemory,
-		llms: LLMConfig{Primary: mockLLM, Summarizer: mockLLM},
+		mem:   testMemory,
+		llms:  LLMConfig{Primary: mockLLM, Summarizer: mockLLM},
+		idGen: testIDGen,
 	}
-
-	// Add messages to memory exceeding the threshold
-	// Threshold = 50 tokens.
-	// Add 6 messages with 10 tokens each = 60 tokens -> triggers summarization.
-	// Wait, system prompt adds tokens too.
-	// System prompt estimate: len(sysPrompt)/4.
-	// sysPrompt "You are TestBot. " -> ~20 chars -> ~5 tokens.
-	// So 5 + 60 = 65 > 50.
 
 	for i := 0; i < 6; i++ {
 		msg := Message{
-			ID:         uuid.New().String(),
+			ID:         testIDGen.NewID(),
 			SessionID:  sessionID,
 			Role:       "user",
 			Content:    fmt.Sprintf("Message %d", i),
 			TokenCount: 10,
-			CreatedAt:  time.Now().Unix() + int64(i),
+			CreatedAt:  time.Now()/1e9 + int64(i),
 		}
 		if err := testMemory.AppendMessage(ctx, sessionID, msg); err != nil {
 			t.Fatalf("AppendMessage failed: %v", err)
 		}
 	}
 
-	// Prepare context
 	req, err := agent.prepareContext(ctx, sessionID)
 	if err != nil {
 		t.Fatalf("prepareContext failed: %v", err)
 	}
 
-	// Summarization should have happened.
-	// Oldest 50% of messages (3 messages) should be summarized.
-	// New messages should be 3 remaining.
-	// Plus 1 system message for episodes.
-
-	// Check messages in DB
 	msgs, err := testMemory.GetMessages(ctx, sessionID, 100)
 	if err != nil {
 		t.Fatalf("GetMessages failed: %v", err)
@@ -90,7 +74,6 @@ func TestContextWindow_Summarize(t *testing.T) {
 		t.Errorf("expected 3 messages remaining in DB, got %d", len(msgs))
 	}
 
-	// Check episodes in DB
 	eps, err := testMemory.GetEpisodes(ctx, sessionID, 10)
 	if err != nil {
 		t.Fatalf("GetEpisodes failed: %v", err)
@@ -102,9 +85,6 @@ func TestContextWindow_Summarize(t *testing.T) {
 		t.Errorf("expected summary 'Summary of conversation', got '%s'", eps[0].Summary)
 	}
 
-	// Check LLMRequest
-	// Should have system prompt + episode summary (as system message) + 3 messages.
-	// Total 4 messages.
 	if len(req.Messages) != 4 {
 		t.Errorf("expected 4 messages in request (1 episode summary + 3 messages), got %d", len(req.Messages))
 	}
@@ -112,8 +92,7 @@ func TestContextWindow_Summarize(t *testing.T) {
 		t.Errorf("expected first message to be system (episode summary), got %s", req.Messages[0].Role)
 	}
 
-	// Ensure the summary content is correct
-	if !strings.Contains(req.Messages[0].Content, "Summary of conversation") {
+	if !fmt.Contains(req.Messages[0].Content, "Summary of conversation") {
 		t.Errorf("expected summary content in system message, got '%s'", req.Messages[0].Content)
 	}
 }

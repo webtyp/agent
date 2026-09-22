@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"context"
-	"time"
-
+	"webtyp.com/context"
 	"webtyp.com/fmt"
 )
 
@@ -15,6 +13,9 @@ func New(cfg Config) (*Agent, error) {
 	if cfg.Memory == nil {
 		return nil, fmt.Errf("agent: Memory is required")
 	}
+	if cfg.IDGen == nil {
+		return nil, fmt.Errf("agent: IDGen is required")
+	}
 
 	// Apply defaults
 	if cfg.MaxIterations == 0 {
@@ -23,8 +24,8 @@ func New(cfg Config) (*Agent, error) {
 	if cfg.MaxRetries == 0 {
 		cfg.MaxRetries = 3
 	}
-	if cfg.MCPTimeout == 0 {
-		cfg.MCPTimeout = 30 * time.Second
+	if cfg.MCPTimeoutMS == 0 {
+		cfg.MCPTimeoutMS = 30000
 	}
 	// Context Window defaults
 	if cfg.ContextWindow.MaxTokens == 0 {
@@ -50,9 +51,7 @@ func New(cfg Config) (*Agent, error) {
 
 	// Add MCP handlers (programmatic servers)
 	// We need a context for initialization (listing tools)
-	// We use a short timeout context
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.MCPTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	for _, handler := range cfg.MCPHandlers {
 		if err := registry.addMCPServer(ctx, handler); err != nil {
@@ -62,7 +61,7 @@ func New(cfg Config) (*Agent, error) {
 
 	// Connect to remote MCP servers
 	for _, url := range cfg.MCPServers {
-		client := NewHTTPMCPClient(url)
+		client := NewHTTPMCPClient(url, cfg.MCPTimeoutMS)
 		if err := registry.addMCPClient(ctx, client); err != nil {
 			return nil, fmt.Errf("agent: failed to connect to MCP server %s: %w", url, err)
 		}
@@ -74,5 +73,6 @@ func New(cfg Config) (*Agent, error) {
 		llms:     cfg.LLMs,
 		registry: registry,
 		fsm:      &fsm{current: StateIdle},
+		idGen:    cfg.IDGen,
 	}, nil
 }
