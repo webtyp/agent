@@ -19,13 +19,13 @@ type Agent struct {
 type Message struct {
 	ID         string // UUID or unixid
 	SessionID  string
-	Role       string // "user" | "assistant" | "system" | "tool"
-	Content    string // text content or tool result JSON
-	ToolName   string // non-empty only when Role == "tool"
-	ToolCallID string // correlates to the LLM tool_use ID
+	Role       string     // "user" | "assistant" | "system" | "tool"
+	Content    string     // text content or tool result JSON
+	ToolName   string     // non-empty only when Role == "tool"
+	ToolCallID string     // correlates to the LLM tool_use ID
 	ToolCalls  []ToolCall // populated when Role == "assistant" and StopReason == "tool_use"
-	TokenCount int // tokens of this specific message alone (0 if unknown)
-	CreatedAt  int64 // unixepoch
+	TokenCount int        // tokens of this specific message alone (0 if unknown)
+	CreatedAt  int64      // unixepoch
 }
 
 // Episode is a compressed summary of past messages. Stored in the episodes table.
@@ -102,14 +102,15 @@ type ContextWindowConfig struct {
 // Config is the configuration struct for New().
 type Config struct {
 	Identity IdentityConfig
-	LLMs     LLMConfig        // required: LLMs.Primary != nil
-	Memory   MemoryStore      // required
+	LLMs     LLMConfig         // required: LLMs.Primary != nil
+	Memory   MemoryStore       // required
 	IDGen    model.IDGenerator // required
 
 	// Tool sources — merged at startup into internal tool registry
 	LocalTools  []Tool      // direct in-process tools
 	MCPHandlers []MCPServer // programmatic references to running servers
-	MCPServers  []string    // remote MCP server URLs (JSON-RPC 2.0)
+	MCPServers  []string    // remote MCP server base URLs — "/mcp" is appended automatically
+	// (webtyp.com/mcp.NewClient convention); don't include it yourself
 
 	// Runtime tunables
 	ContextWindow ContextWindowConfig

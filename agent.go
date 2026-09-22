@@ -54,7 +54,7 @@ func New(cfg Config) (*Agent, error) {
 	ctx := context.Background()
 
 	for _, handler := range cfg.MCPHandlers {
-		if err := registry.addMCPServer(ctx, handler); err != nil {
+		if err := registry.addMCPServer(ctx, handler, cfg.MCPTimeoutMS); err != nil {
 			return nil, fmt.Errf("agent: failed to add MCP handler %s: %w", handler.URL(), err)
 		}
 	}

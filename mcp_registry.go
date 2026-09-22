@@ -33,11 +33,35 @@ func newMCPRegistry() *mcpRegistry {
 func (r *mcpRegistry) addLocalTool(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.localTools = removeToolByName(r.localTools, t.Name())
 	r.localTools = append(r.localTools, t)
 }
 
-func (r *mcpRegistry) addMCPServer(ctx *context.Context, server MCPServer) error {
-	client := NewHTTPMCPClient(server.URL(), 30000)
+// removeToolByName drops the entry named name, if present. The registry used to be a
+// map[string]Tool, where a second registration under the same name silently replaced the
+// first (last write wins); a plain append-only slice lost that property (two entries with
+// the same name, getTools() sends both to the LLM). This restores it without a map.
+func removeToolByName(tools []Tool, name string) []Tool {
+	for i, t := range tools {
+		if t.Name() == name {
+			return append(tools[:i], tools[i+1:]...)
+		}
+	}
+	return tools
+}
+
+// removeMCPToolByName is removeToolByName's counterpart for mcpToolEntry — same reasoning.
+func removeMCPToolByName(tools []mcpToolEntry, name string) []mcpToolEntry {
+	for i, t := range tools {
+		if t.Def.Name == name {
+			return append(tools[:i], tools[i+1:]...)
+		}
+	}
+	return tools
+}
+
+func (r *mcpRegistry) addMCPServer(ctx *context.Context, server MCPServer, timeoutMS int) error {
+	client := NewHTTPMCPClient(server.URL(), timeoutMS)
 	return r.addMCPClient(ctx, client)
 }
 
@@ -55,6 +79,7 @@ func (r *mcpRegistry) addMCPClient(ctx *context.Context, client mcpCaller) error
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, t := range list.Tools {
+		r.mcpTools = removeMCPToolByName(r.mcpTools, t.Name)
 		r.mcpTools = append(r.mcpTools, mcpToolEntry{
 			Client: client,
 			Def: ToolDef{

@@ -44,6 +44,8 @@ type MemoryStore interface {
 }
 
 type MCPServer interface {
+	// URL is the server's base URL. webtyp.com/mcp.NewClient appends "/mcp" to it — pass
+	// the host root (e.g. "https://host"), not a path already ending in "/mcp".
 	URL() string
 }
 

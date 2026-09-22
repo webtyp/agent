@@ -4,7 +4,7 @@ package agent
 
 import (
 	"bytes"
-	"context"
+	stdcontext "context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"webtyp.com/context"
 	"webtyp.com/unixid"
 )
 
@@ -72,7 +73,7 @@ type openAIResponse struct {
 	} `json:"usage"`
 }
 
-func (c *OllamaClient) Generate(ctx context.Context, req LLMRequest) (LLMResponse, error) {
+func (c *OllamaClient) Generate(ctx *context.Context, req LLMRequest) (LLMResponse, error) {
 	// Convert LLMRequest to OpenAI format
 	var messages []openAIMessage
 
@@ -138,7 +139,9 @@ func (c *OllamaClient) Generate(ctx context.Context, req LLMRequest) (LLMRespons
 	}
 
 	bodyBytes, _ := json.Marshal(oaiReq)
-	httpReq, _ := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/chat/completions", bytes.NewReader(bodyBytes))
+	// webtyp.com/context carries no cancellation (docs/PLAN.md Cambio 1) — this host-only
+	// test client uses a real stdlib context.Background() for the HTTP call itself.
+	httpReq, _ := http.NewRequestWithContext(stdcontext.Background(), "POST", c.baseURL+"/v1/chat/completions", bytes.NewReader(bodyBytes))
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(httpReq)
@@ -231,6 +234,7 @@ func TestIntegration_ClinicHours(t *testing.T) {
 			Primary: client,
 		},
 		Memory: mem,
+		IDGen:  idGen,
 	}
 
 	agent, err := New(cfg)
@@ -268,8 +272,9 @@ func TestIntegration_SessionIsolation(t *testing.T) {
 
 	agent, _ := New(Config{
 		Identity: IdentityConfig{Name: "Bot", Role: "Bot", Instructions: "Be helpful."},
-		LLMs: LLMConfig{Primary: client},
-		Memory: mem,
+		LLMs:     LLMConfig{Primary: client},
+		Memory:   mem,
+		IDGen:    idGen,
 	})
 
 	var wg sync.WaitGroup
