@@ -170,12 +170,7 @@ aparte.
    descargue (D5: se cachea en IndexedDB tras la primera descarga) — no hay plan todavía para
    esa pieza de despliegue; no es código de ningún repositorio de esta lista.
 
-3. **`jsvalue` — bug de corrupción en su ruta de escritura.** Confirmado, no bloquea nada de
-   esta ola (`indexdb` no delega el encode), pero sigue roto para cualquier otro consumidor.
-   Arreglo mecánico conocido (`Uint8ArrayClass.New(len)` + `CopyBytesToJS` en los tres
-   writers) — sin plan propio despachado todavía.
-
-4. **Fase 5 — optimización, ninguna bloqueante, ninguna con condición de entrada cumplida
+3. **Fase 5 — optimización, ninguna bloqueante, ninguna con condición de entrada cumplida
    todavía:**
    - Cuantización int8 en `vector` — entra cuando un corpus real se acerque al techo de D0
      (ahora más lejos que a 384: ~300K documentos antes de los 150 MB, a 128 dims).
@@ -187,7 +182,6 @@ aparte.
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| `jsvalue` corrompe `[]byte` en su ruta de escritura (confirmado) | Corrupción silenciosa para cualquier consumidor que no sea `indexdb` | Fuera del camino crítico de esta ola; arreglo mecánico conocido, sin plan despachado — ver §5.3 |
 | `recall@10` a 128 dims sin medir | Si degrada demasiado, hay que subir a 256 y re-medir arena/costo | Es la puerta de salida de fase 3 (§5.1) — se mide, no se asume |
 | El artifact (109 MB) no tiene dónde hostearse todavía | Bloquea la primera descarga real en un navegador | Pendiente, no es código — ver §5.2 |
 | La cuota de IndexedDB desaloja el índice | Pérdida silenciosa de datos | `navigator.storage.persist()` al iniciar, `estimate()` antes de escribir, LRU propio antes que el del navegador |
