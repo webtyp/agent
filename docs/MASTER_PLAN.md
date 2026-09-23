@@ -138,7 +138,7 @@ Acá, solo la forma final.
 | `weights` | 3 | publicado v0.1.0 |
 | `weightsc` | 3 | publicado v0.1.1 — probado contra los archivos reales de `bekko-embedding-v1-a8m` |
 | `transformer` | 3 | publicado v0.1.3 — grafo ModernBERT + `Config.Pooling`, Granite y Bekko a8m |
-| `embed` (`StaticEmbedder`, el adaptador) | 3 | **en curso** — ver §5 |
+| `embed` (`StaticEmbedder`, el adaptador) | 3 | publicado v0.2.0 — verificado con coseno ≥0,999 contra el modelo real (3 oraciones) |
 | `agent` | 4 | publicado v0.5.0 — `MemoryStore` segregado, sin stdlib prohibida |
 | `agentmemory` | 4 | publicado v0.1.0 |
 | `vector-storage` | 0 | congelado (referencia histórica) |
@@ -148,30 +148,32 @@ Acá, solo la forma final.
 Esto es lo que falta — el resto del documento es contexto para hacer esto, no una lista
 aparte.
 
-1. **`webtyp/embed` — `StaticEmbedder`.** Despachado (`docs/PLAN.md` de ese repo,
-   `codejob`), en revisión. Compone `tokenizer` + `weights` + `transformer` para
-   `bekko-embedding-v1-a8m`, trunca a 128 dims (D0) y renormaliza. Es lo único que falta para
-   que el resto de esta ola sirva de punta a punta.
-
-2. **Puerta de salida de fase 3 (bloqueada por el punto 1):**
-   - El mismo texto produce el mismo vector, bit a bit o con tolerancia documentada, en los
-     tres targets de D4 (navegador WASM, backend nativo, Worker WASM).
+1. **Puerta de salida de fase 3 — parcialmente cerrada.** `StaticEmbedder` (`embed` v0.2.0)
+   reproduce el vector real del modelo con coseno ≥0,999 en 3 oraciones de prueba (español e
+   inglés, generadas corriendo `AutoModel.from_pretrained` sobre el checkpoint real) — la
+   cadena `tokenizer`+`weights`+`transformer`+`embed` funciona de punta a punta, verificado,
+   no asumido. Un bug real apareció y se corrigió en el camino: `transformer.GatedFFN`
+   hardcodeaba SiLU; `bekko-embedding-v1-a8m` usa GELU (`config.json`) — `Config.Activation`
+   nuevo en `transformer` v0.1.4, ver su `docs/LAST_PLAN_EXECUTED.md`. **Lo que falta
+   todavía:**
+   - Igualdad bit a bit o tolerancia documentada entre los tres targets de D4 (navegador
+     WASM, backend nativo, Worker WASM) — solo se verificó nativo hasta ahora.
    - Un corpus real en español, indexado offline en el navegador, con `recall@10`
      documentado — el número que confirma o descarta si 128 dims (D0) alcanza.
 
-3. **Artifact real de producción.** `weightsc` ya corrió contra los 3 archivos reales de
+2. **Artifact real de producción.** `weightsc` ya corrió contra los 3 archivos reales de
    `bekko-embedding-v1-a8m` (`model.safetensors`, `config.json`, `tokenizer.json`) y produjo
-   un `.wtypw` de 109 MB + `.merges` de 5,8 MB, verificados con `weights.Open` — la cadena de
-   conversión funciona. **Falta decidir dónde se hostea ese artifact** para que el navegador
-   lo descargue (D5: se cachea en IndexedDB tras la primera descarga) — no hay plan todavía
-   para esa pieza de despliegue; no es código de ningún repositorio de esta lista.
+   un `.wtypw` de 109 MB + `.merges` de 5,8 MB — es el mismo artifact que `embed` usó para la
+   verificación del punto 1. **Falta decidir dónde se hostea** para que el navegador lo
+   descargue (D5: se cachea en IndexedDB tras la primera descarga) — no hay plan todavía para
+   esa pieza de despliegue; no es código de ningún repositorio de esta lista.
 
-4. **`jsvalue` — bug de corrupción en su ruta de escritura.** Confirmado, no bloquea nada de
+3. **`jsvalue` — bug de corrupción en su ruta de escritura.** Confirmado, no bloquea nada de
    esta ola (`indexdb` no delega el encode), pero sigue roto para cualquier otro consumidor.
    Arreglo mecánico conocido (`Uint8ArrayClass.New(len)` + `CopyBytesToJS` en los tres
    writers) — sin plan propio despachado todavía.
 
-5. **Fase 5 — optimización, ninguna bloqueante, ninguna con condición de entrada cumplida
+4. **Fase 5 — optimización, ninguna bloqueante, ninguna con condición de entrada cumplida
    todavía:**
    - Cuantización int8 en `vector` — entra cuando un corpus real se acerque al techo de D0
      (ahora más lejos que a 384: ~300K documentos antes de los 150 MB, a 128 dims).
@@ -183,8 +185,9 @@ aparte.
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| `jsvalue` corrompe `[]byte` en su ruta de escritura (confirmado) | Corrupción silenciosa para cualquier consumidor que no sea `indexdb` | Fuera del camino crítico de esta ola; arreglo mecánico conocido, sin plan despachado — ver §5.4 |
-| `recall@10` a 128 dims sin medir | Si degrada demasiado, hay que subir a 256 y re-medir arena/costo | Es la puerta de salida de fase 3 (§5.2) — se mide, no se asume |
-| El artifact (109 MB) no tiene dónde hostearse todavía | Bloquea la primera descarga real en un navegador | Pendiente, no es código — ver §5.3 |
+| `jsvalue` corrompe `[]byte` en su ruta de escritura (confirmado) | Corrupción silenciosa para cualquier consumidor que no sea `indexdb` | Fuera del camino crítico de esta ola; arreglo mecánico conocido, sin plan despachado — ver §5.3 |
+| `recall@10` a 128 dims sin medir | Si degrada demasiado, hay que subir a 256 y re-medir arena/costo | Es la puerta de salida de fase 3 (§5.1) — se mide, no se asume |
+| El artifact (109 MB) no tiene dónde hostearse todavía | Bloquea la primera descarga real en un navegador | Pendiente, no es código — ver §5.2 |
+| Igualdad entre targets (navegador/backend/Worker) sin verificar | Si divergen, no hay un espacio vectorial común y hay que re-indexar | Puerta de salida de fase 3 (§5.1) — solo se verificó nativo hasta ahora |
 | La cuota de IndexedDB desaloja el índice | Pérdida silenciosa de datos | `navigator.storage.persist()` al iniciar, `estimate()` antes de escribir, LRU propio antes que el del navegador |
 | Vectores y texto se desincronizan en una escritura parcial | Resultados corruptos | Una sola transacción abarcando ambos stores; cabecera `dim`/`model_id` rechaza una arena que no corresponde |
