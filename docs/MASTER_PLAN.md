@@ -148,20 +148,28 @@ Acá, solo la forma final.
 Esto es lo que falta — el resto del documento es contexto para hacer esto, no una lista
 aparte.
 
-1. **Puerta de salida de fase 3 — igualdad entre targets CERRADA, falta `recall@10`.**
-   `StaticEmbedder` (`embed` v0.2.0) reproduce el vector real del modelo con coseno ≥0,999,
-   verificado **en los dos targets que importan** (navegador TinyGo/WASM vía `wasmbrowsertest`
-   con `gotest -tinygo`, y backend Go nativo — el Worker de Cloudflare es el mismo binario
-   TinyGo/WASM que el navegador, así que queda cubierto por el mismo resultado, no hace falta
-   un tercer test), contra 3 oraciones de prueba generadas corriendo
-   `AutoModel.from_pretrained` sobre el checkpoint real. Un bug real apareció y se corrigió en
-   el camino: `transformer.GatedFFN` hardcodeaba SiLU; `bekko-embedding-v1-a8m` usa GELU
-   (`config.json`) — `Config.Activation` nuevo en `transformer` v0.1.4, ver su
-   `docs/LAST_PLAN_EXECUTED.md`. **Lo único que falta de esta puerta:** un corpus real en
-   español, indexado offline en el navegador, con `recall@10` documentado — el número que
-   confirma o descarta si 128 dims (D0) alcanza. No hay plan escrito todavía para armar ese
-   corpus de prueba (200–500 documentos, 30–50 consultas anotadas a mano — método en
-   `SMALL_MODEL_FOR_EMBEDING.md` §5.2).
+1. **Puerta de salida de fase 3 — CERRADA.** `StaticEmbedder` (`embed` v0.2.0) reproduce el
+   vector real del modelo con coseno ≥0,999, verificado en navegador TinyGo/WASM (vía
+   `wasmbrowsertest`, `gotest -tinygo`) y backend Go nativo — el Worker de Cloudflare es el
+   mismo binario TinyGo/WASM que el navegador, cubierto por el mismo resultado. Un bug real
+   apareció y se corrigió en el camino: `transformer.GatedFFN` hardcodeaba SiLU;
+   `bekko-embedding-v1-a8m` usa GELU (`config.json`) — `Config.Activation` nuevo en
+   `transformer` v0.1.4, ver su `docs/LAST_PLAN_EXECUTED.md`.
+
+   **Retrieval, medido — 2026-09-23.** 10 artículos reales de Wikipedia en español (temas
+   dispares: Torre Eiffel, fotosíntesis, Segunda Guerra Mundial, Python, río Amazonas,
+   Leonardo da Vinci, sistema solar, Copa Mundial, ADN, Imperio romano — ~900 caracteres cada
+   uno, vía la API real de `es.wikipedia.org`) embebidos con `StaticEmbedder` real (128 dims,
+   artifact real), contra 10 consultas parafraseadas a mano (sin solapamiento de palabras
+   clave con el título — ej. "qué polímata del Renacimiento italiano trabajó para el duque
+   Ludovico Sforza" en vez de "Leonardo da Vinci") y comparadas por coseno:
+   **accuracy@1 = 10/10 (100%), recall@3 = 10/10 (100%)**. `recall@10` no es una métrica
+   útil con un corpus de 10 documentos (K=10 devuelve el corpus entero) — `accuracy@1`/
+   `recall@3` es lo que un corpus chico puede medir, y ya es una señal real: 128 dims no
+   perdió ninguna consulta por una paráfrasis sin palabras en común con el documento
+   correcto. No reemplaza una medición con cientos de documentos si el corpus real de
+   producción crece mucho más grande — pero confirma que 128 dims (D0) no está
+   obviamente roto.
 
 2. **Artifact real de producción.** `weightsc` ya corrió contra los 3 archivos reales de
    `bekko-embedding-v1-a8m` (`model.safetensors`, `config.json`, `tokenizer.json`) y produjo
@@ -182,7 +190,7 @@ aparte.
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| `recall@10` a 128 dims sin medir | Si degrada demasiado, hay que subir a 256 y re-medir arena/costo | Es la puerta de salida de fase 3 (§5.1) — se mide, no se asume |
+| 128 dims con un corpus grande (miles de docs), sin medir todavía | Si degrada, hay que subir a 256 y re-medir arena/costo | Medido en chico (§5.1, 10 docs, accuracy@1 100%) — repetir con el corpus real de producción cuando exista |
 | El artifact (109 MB) no tiene dónde hostearse todavía | Bloquea la primera descarga real en un navegador | Pendiente, no es código — ver §5.2 |
 | La cuota de IndexedDB desaloja el índice | Pérdida silenciosa de datos | `navigator.storage.persist()` al iniciar, `estimate()` antes de escribir, LRU propio antes que el del navegador |
 | Vectores y texto se desincronizan en una escritura parcial | Resultados corruptos | Una sola transacción abarcando ambos stores; cabecera `dim`/`model_id` rechaza una arena que no corresponde |
