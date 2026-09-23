@@ -15,5 +15,5 @@ require (
 require (
 	webtyp.com/base64 v0.0.6 // indirect
 	webtyp.com/fetch v0.1.28 // indirect
-	webtyp.com/router v0.1.41 // indirect
+	webtyp.com/router v0.1.42 // indirect
 )
