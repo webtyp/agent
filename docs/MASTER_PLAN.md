@@ -148,18 +148,20 @@ Acá, solo la forma final.
 Esto es lo que falta — el resto del documento es contexto para hacer esto, no una lista
 aparte.
 
-1. **Puerta de salida de fase 3 — parcialmente cerrada.** `StaticEmbedder` (`embed` v0.2.0)
-   reproduce el vector real del modelo con coseno ≥0,999 en 3 oraciones de prueba (español e
-   inglés, generadas corriendo `AutoModel.from_pretrained` sobre el checkpoint real) — la
-   cadena `tokenizer`+`weights`+`transformer`+`embed` funciona de punta a punta, verificado,
-   no asumido. Un bug real apareció y se corrigió en el camino: `transformer.GatedFFN`
-   hardcodeaba SiLU; `bekko-embedding-v1-a8m` usa GELU (`config.json`) — `Config.Activation`
-   nuevo en `transformer` v0.1.4, ver su `docs/LAST_PLAN_EXECUTED.md`. **Lo que falta
-   todavía:**
-   - Igualdad bit a bit o tolerancia documentada entre los tres targets de D4 (navegador
-     WASM, backend nativo, Worker WASM) — solo se verificó nativo hasta ahora.
-   - Un corpus real en español, indexado offline en el navegador, con `recall@10`
-     documentado — el número que confirma o descarta si 128 dims (D0) alcanza.
+1. **Puerta de salida de fase 3 — igualdad entre targets CERRADA, falta `recall@10`.**
+   `StaticEmbedder` (`embed` v0.2.0) reproduce el vector real del modelo con coseno ≥0,999,
+   verificado **en los dos targets que importan** (navegador TinyGo/WASM vía `wasmbrowsertest`
+   con `gotest -tinygo`, y backend Go nativo — el Worker de Cloudflare es el mismo binario
+   TinyGo/WASM que el navegador, así que queda cubierto por el mismo resultado, no hace falta
+   un tercer test), contra 3 oraciones de prueba generadas corriendo
+   `AutoModel.from_pretrained` sobre el checkpoint real. Un bug real apareció y se corrigió en
+   el camino: `transformer.GatedFFN` hardcodeaba SiLU; `bekko-embedding-v1-a8m` usa GELU
+   (`config.json`) — `Config.Activation` nuevo en `transformer` v0.1.4, ver su
+   `docs/LAST_PLAN_EXECUTED.md`. **Lo único que falta de esta puerta:** un corpus real en
+   español, indexado offline en el navegador, con `recall@10` documentado — el número que
+   confirma o descarta si 128 dims (D0) alcanza. No hay plan escrito todavía para armar ese
+   corpus de prueba (200–500 documentos, 30–50 consultas anotadas a mano — método en
+   `SMALL_MODEL_FOR_EMBEDING.md` §5.2).
 
 2. **Artifact real de producción.** `weightsc` ya corrió contra los 3 archivos reales de
    `bekko-embedding-v1-a8m` (`model.safetensors`, `config.json`, `tokenizer.json`) y produjo
@@ -188,6 +190,5 @@ aparte.
 | `jsvalue` corrompe `[]byte` en su ruta de escritura (confirmado) | Corrupción silenciosa para cualquier consumidor que no sea `indexdb` | Fuera del camino crítico de esta ola; arreglo mecánico conocido, sin plan despachado — ver §5.3 |
 | `recall@10` a 128 dims sin medir | Si degrada demasiado, hay que subir a 256 y re-medir arena/costo | Es la puerta de salida de fase 3 (§5.1) — se mide, no se asume |
 | El artifact (109 MB) no tiene dónde hostearse todavía | Bloquea la primera descarga real en un navegador | Pendiente, no es código — ver §5.2 |
-| Igualdad entre targets (navegador/backend/Worker) sin verificar | Si divergen, no hay un espacio vectorial común y hay que re-indexar | Puerta de salida de fase 3 (§5.1) — solo se verificó nativo hasta ahora |
 | La cuota de IndexedDB desaloja el índice | Pérdida silenciosa de datos | `navigator.storage.persist()` al iniciar, `estimate()` antes de escribir, LRU propio antes que el del navegador |
 | Vectores y texto se desincronizan en una escritura parcial | Resultados corruptos | Una sola transacción abarcando ambos stores; cabecera `dim`/`model_id` rechaza una arena que no corresponde |
