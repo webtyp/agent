@@ -58,7 +58,7 @@ en los tres targets (D4). El corpus vive en IndexedDB. Detalle y argumento compl
                 └────────────┘
 
    Navegador embebe CONSULTAS Y DOCUMENTOS (chunks ≤256 tokens, D4c) — siempre, sin red.
-   MISMO código Go, MISMOS pesos, MISMO Dim=64 (Matryoshka, D0) → un solo espacio vectorial.
+   MISMO código Go, MISMOS pesos, MISMO Dim=128 (Matryoshka, D0) → un solo espacio vectorial.
 ```
 
 Cada flecha es una dependencia de compilación. No hay ciclos; ningún repositorio depende de
@@ -70,13 +70,31 @@ puerto es fase 2 y el adaptador (`StaticEmbedder`) es fase 3.
 Argumento completo de cada una: [`history/SEMANTIC_SEARCH_WAVE.md`](history/SEMANTIC_SEARCH_WAVE.md) §3.
 Acá, solo la forma final.
 
-- **D0 — `Dim = 64`, no 384.** `bekko-embedding-v1-a8m` entrena con Matryoshka: los primeros
-  64 componentes de su vector nativo de 384 son, por construcción, un embedding válido y
-  completo. `transformer.Encode` sigue devolviendo 384 siempre — truncar a 64 y renormalizar
-  L2 es trabajo del adaptador `embed` (`StaticEmbedder`), antes de que el vector salga de ahí.
-  Arena: `N × 64 × 4` = 256 bytes/doc; 100 000 documentos = 25 MB. **Sin confirmar todavía:**
-  cuánto degrada `recall@10` a 64 dims contra 128 — no hay cifra publicada, es la fase 3 la
-  que tiene que medirlo (§5).
+- **D0 — `Dim = 128`, no 384.** `bekko-embedding-v1-a8m` entrena con Matryoshka: los primeros
+  *k* componentes de su vector nativo de 384 son, por construcción, un embedding válido y
+  completo para *k* ∈ {256, 128, 64} — **verificado en el model card real**
+  (`huggingface.co/hotchpotch/bekko-embedding-v1-a8m`, tabla "Truncation and Quantization",
+  no en un resumen de blog): pérdida de calidad medida (HAKARI, delta vs 384 float) **256 →
+  -1,76% ("good size/quality tradeoff"), 128 → -7,05% ("memory-constrained indexes"), 64 →
+  -17,51% ("not for quality-sensitive retrieval" — el propio autor lo desaconseja para
+  búsqueda real)**. Se eligió 128: el más chico que el model card no desaconseja para
+  retrieval — no 64, que sí. `transformer.Encode` sigue devolviendo 384 siempre — truncar a
+  128 y renormalizar L2 es trabajo del adaptador `embed` (`StaticEmbedder`), antes de que el
+  vector salga de ahí. Arena: `N × 128 × 4` = 512 bytes/doc; 100 000 documentos = 51 MB.
+
+  **Corrección de proceso, 2026-09-23:** la primera versión de esta línea decía 64 y citaba
+  "~1,3%/~6,2%" sin fuente verificada — números de un resumen de blog (marcados `[inv]` en
+  `SMALL_MODEL_FOR_EMBEDING.md`, es decir, ya declarados sin confirmar) que nunca se
+  contrastaron contra el model card real antes de fijar la decisión. La tabla de arriba es la
+  fuente primaria. No repetir el error: un dato `[inv]` no se promueve a decisión de diseño
+  sin volver a la fuente.
+
+  **Una palanca distinta, más fuerte, que D0 no usa todavía:** el mismo model card mide
+  cuantizar a **int8 los 384 dims completos + un paso de rescore** en **-0,04%** — casi sin
+  pérdida, con compresión 4×. No se elige acá porque exige una segunda pasada de comparación
+  de mayor precisión sobre los candidatos del top-k, que ningún plan de esta ola implementa
+  todavía — es exactamente la cuantización int8 que fase 5 (§5) ya reservaba para cuando el
+  corpus lo pida; sigue siendo la ruta a evaluar si 128 dims no alcanza.
 - **D1 — Un vector es `[]byte` en disco, una porción de arena compartida en memoria.**
   Nunca `[]float32` por documento — `js.ValueOf` no transporta vectores y TinyGo no tiene
   `recover()`. Normalizados L2 siempre (coseno = producto punto).
@@ -132,14 +150,14 @@ aparte.
 
 1. **`webtyp/embed` — `StaticEmbedder`.** Despachado (`docs/PLAN.md` de ese repo,
    `codejob`), en revisión. Compone `tokenizer` + `weights` + `transformer` para
-   `bekko-embedding-v1-a8m`, trunca a 64 dims (D0) y renormaliza. Es lo único que falta para
+   `bekko-embedding-v1-a8m`, trunca a 128 dims (D0) y renormaliza. Es lo único que falta para
    que el resto de esta ola sirva de punta a punta.
 
 2. **Puerta de salida de fase 3 (bloqueada por el punto 1):**
    - El mismo texto produce el mismo vector, bit a bit o con tolerancia documentada, en los
      tres targets de D4 (navegador WASM, backend nativo, Worker WASM).
    - Un corpus real en español, indexado offline en el navegador, con `recall@10`
-     documentado — el número que confirma o descarta si 64 dims (D0) alcanza.
+     documentado — el número que confirma o descarta si 128 dims (D0) alcanza.
 
 3. **Artifact real de producción.** `weightsc` ya corrió contra los 3 archivos reales de
    `bekko-embedding-v1-a8m` (`model.safetensors`, `config.json`, `tokenizer.json`) y produjo
@@ -156,7 +174,7 @@ aparte.
 5. **Fase 5 — optimización, ninguna bloqueante, ninguna con condición de entrada cumplida
    todavía:**
    - Cuantización int8 en `vector` — entra cuando un corpus real se acerque al techo de D0
-     (ahora mucho más lejos, a 64 dims: ~1M documentos antes de los 150 MB).
+     (ahora más lejos que a 384: ~300K documentos antes de los 150 MB, a 128 dims).
    - BM25 léxico + fusión RRF — completa la mitad léxica que hoy cubre `LIKE`.
    - Encoder sobre WebGPU — descartado salvo que la puerta de fase 3 mida que WASM no
      alcanza. Plan archivado en [`history/WEBGPU_ENCODER.md`](history/WEBGPU_ENCODER.md).
@@ -166,7 +184,7 @@ aparte.
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
 | `jsvalue` corrompe `[]byte` en su ruta de escritura (confirmado) | Corrupción silenciosa para cualquier consumidor que no sea `indexdb` | Fuera del camino crítico de esta ola; arreglo mecánico conocido, sin plan despachado — ver §5.4 |
-| `recall@10` a 64 dims sin medir | Si degrada demasiado, hay que subir a 128 y re-medir arena/costo | Es la puerta de salida de fase 3 (§5.2) — se mide, no se asume |
+| `recall@10` a 128 dims sin medir | Si degrada demasiado, hay que subir a 256 y re-medir arena/costo | Es la puerta de salida de fase 3 (§5.2) — se mide, no se asume |
 | El artifact (109 MB) no tiene dónde hostearse todavía | Bloquea la primera descarga real en un navegador | Pendiente, no es código — ver §5.3 |
 | La cuota de IndexedDB desaloja el índice | Pérdida silenciosa de datos | `navigator.storage.persist()` al iniciar, `estimate()` antes de escribir, LRU propio antes que el del navegador |
 | Vectores y texto se desincronizan en una escritura parcial | Resultados corruptos | Una sola transacción abarcando ambos stores; cabecera `dim`/`model_id` rechaza una arena que no corresponde |

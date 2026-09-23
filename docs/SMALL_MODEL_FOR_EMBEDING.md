@@ -1,7 +1,8 @@
 ---
 DOC: "Elección del modelo de embeddings"
 FECHA_INVESTIGACION: 2026-09-17
-STATUS: consolidado; la elección se cierra con las dos mediciones de §5
+STATUS: histórico — la elección real (bekko-embedding-v1-a8m) y las cifras de Matryoshka
+  verificadas contra el model card real están en docs/MASTER_PLAN.md D0/D5, no acá
 RELATED: docs/MASTER_PLAN.md D5, docs/history/SEMANTIC_SEARCH_WAVE.md D4b
 ---
 
@@ -11,6 +12,14 @@ RELATED: docs/MASTER_PLAN.md D5, docs/history/SEMANTIC_SEARCH_WAVE.md D4b
 > Marcas de procedencia: **[inv]** dato de la investigación, sin verificar en esta sesión ·
 > **[calc]** aritmética hecha sobre esos datos · **[ver]** verificado contra código o
 > documentación de plataforma.
+>
+> **Advertencia, 2026-09-23:** el §6 de este documento recomendaba probar Bekko a25m antes
+> que a8m por su Matryoshka — cita "truncar 384→256→128" **[inv]**, sin verificar contra el
+> model card real. Esa cifra **[inv]** se promovió a decisión de diseño (D0, 64 dims) sin
+> volver a la fuente — error corregido en `MASTER_PLAN.md` D0, que ahora cita la tabla real
+> de `huggingface.co/hotchpotch/bekko-embedding-v1-a8m` con las pérdidas de calidad exactas
+> por dimensión. Este documento no se corrige línea por línea — quedó congelado antes de que
+> se resolviera qué candidato ganaba; **D0 y D5 mandan sobre cualquier cifra de acá**.
 
 # 1. Requisito
 
