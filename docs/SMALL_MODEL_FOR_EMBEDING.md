@@ -2,7 +2,7 @@
 DOC: "Elección del modelo de embeddings"
 FECHA_INVESTIGACION: 2026-09-17
 STATUS: consolidado; la elección se cierra con las dos mediciones de §5
-RELATED: docs/MASTER_PLAN.md D5, docs/PENDING_ITEMS.md P1
+RELATED: docs/MASTER_PLAN.md D5, docs/history/SEMANTIC_SEARCH_WAVE.md D4b
 ---
 
 > Consolidación de una investigación en línea (Gemini + ChatGPT, 2026-09-17). Las fuentes
@@ -99,7 +99,7 @@ cuerpo — 28,3M, 24,9M y 7,7M — y el costo escala con eso.
 incompleto y desaconseja usarlo. Si es así, los 856M FLOP se pagan escalares y el resultado
 puede caer en la banda mala. Confirmar o refutar esa afirmación es parte del benchmark.
 
-Umbrales y desenlaces, en [`PENDING_ITEMS.md`](PENDING_ITEMS.md) P1.
+Umbrales y desenlaces, en [`history/SEMANTIC_SEARCH_WAVE.md`](history/SEMANTIC_SEARCH_WAVE.md) D4b.
 
 ### 5.2 ¿Sirve en español? — la que realmente elige
 

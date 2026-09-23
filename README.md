@@ -9,15 +9,9 @@ Autonomous AI Agent system for `webtyp`.
 *   [**PLAN.md**](docs/PLAN.md) — the dispatchable plan for THIS repository's next change.
     Created and consumed by codejob; absent between dispatches.
 *   [**MASTER_PLAN.md**](docs/MASTER_PLAN.md) — **master index**: browser-native semantic search on IndexedDB.
-    Architecture, shared contracts, build order and phase gates across every repository involved.
-*   [**PENDING_ITEMS.md**](docs/PENDING_ITEMS.md) — one measurement left, not a decision: how
-    many f32 MFLOPS TinyGo does in WASM — measured in webtyp/vector, phase 2. Decided items live in the
-    plan that executes them, not there.
-*   [This repository's own plan](docs/plans/agent.md) — the `agent` diff: memory moves out,
-    `MemoryStore` gets segregated, the defects to fix along the way.
-*   [Plans for repositories not yet created](docs/plans/) — `tokenizer`, `weights`, `embed`,
-    `transformer`. All four wait on the phase-3 opening benchmark (PENDING_ITEMS P1); each moves to
-    its own repository once created. `vector` and `vectordb` already moved.
+    Architecture, shared contracts, and what's still pending across every repository involved.
+*   [**docs/history/**](docs/history/) — how the design got here: every correction, every PR
+    postmortem, every closed decision. Frozen; MASTER_PLAN.md is the live document.
 
 ### Core Guides
 *   [System Architecture](docs/ARCHITECTURE.md) - High-level definition and contracts.
