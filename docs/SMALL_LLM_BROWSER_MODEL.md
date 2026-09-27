@@ -21,9 +21,10 @@ Este documento define la arquitectura y selección de Modelos de Lenguaje Peque�
 
 ### Tabla Comparativa de Modelos Evaluados
 
-| Modelo | Parámetros (Totales / No Emb.) | Tamaño Pesos (INT4 / Q4) | Memoria RAM/VRAM | Benchmarks Tool-Calling / Razonamiento | Soporte Español | Estado / Recomendación |
+| Modelo | Parámetros (Totales / No Emb.) | Tamaño Pesos (INT4 / Q4 / Q8) | Memoria RAM/VRAM | Benchmarks Tool-Calling / Razonamiento | Soporte Español | Estado / Recomendación |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Qwen3-0.6B** | ~0.60B | ~380 MB | ~0.7 GB | **0.880 Agent Score** (0.700 precisión, 1.000 restraint) [3] | ★★★★☆ | 🥇 **Opción Principal** |
+| **Qwen3.5-0.8B** | ~0.80B | ~1019 MB (`Q8_0` GGUF) | ~1.1 GB | Visión, Tool Calling & Razonamiento nativo (Arch `qwen35`) | ★★★★★ | 🥇 **Opción Principal (Prueba Local)** |
+| **Qwen3-0.6B** | ~0.60B | ~380 MB | ~0.7 GB | **0.880 Agent Score** (0.700 precisión, 1.000 restraint) [3] | ★★★★☆ | 🥈 **Alternativa Ultra Ligera** |
 | **Granite 350M** | ~0.35B | ~220 MB | ~0.5 GB | **27/30** en evaluación multilingüe de tool calling [8] | ★★★☆☆ | 🥈 **Alternativa Alta Velocidad** |
 | **FunctionGemma 270M** | 0.27B | ~180 MB | ~0.4 GB | Especialista en extracción de parámetros; requiere fine-tuning [4][5] | ★★☆☆☆ | 🥉 **Especialista para Fine-Tuning** |
 | **Qwen2.5-0.5B-Instruct** | 0.49B / 0.36B [2] | ~398 MB [9] | ~0.8 GB [9] | GSM8K: **0.3692** [5]; Formatos estructurados: **0.610** [4] | ★★★★☆ | 🏅 **Fallback Confiable** |
@@ -34,13 +35,18 @@ Este documento define la arquitectura y selección de Modelos de Lenguaje Peque�
 
 ### Análisis Detallado de Candidatos
 
-1. 🥇 **Qwen3-0.6B (Principal)**:
+1. 🥇 **Qwen3.5-0.8B (`Lmstudio-community/Qwen3.5-0.8B...` - Principal en Prueba Local)**:
+   - **Archivo**: `Qwen3.5-0.8B-Q8_0.gguf` (~1019.19 MB en disco, cuantización `Q8_0`, formato GGUF, arquitectura `qwen35`).
+   - **Capacidades**: Visión, Tool Calling y Razonamiento integrados.
+   - Ideal para pruebas locales en navegador/WASM con soporte completo de herramientas y comprensión avanzada en español.
+
+2. 🥈 **Qwen3-0.6B (Alternativa Ultra Ligera)**:
    - Tokenizer y chat template optimizados para `<tools>` y `<tool_call>` [1].
    - Ejecutable directamente en navegador vía WASM con llama.cpp / wllama [2].
    - Soporta alternancia de razonamiento (`enable_thinking = false`) para latencia ultrabaja en ruteo de herramientas.
    - Excelente comprensión del español y capacidad para rehusar llamadas cuando no corresponden (*restraint* score = 1.000) [3].
 
-2. 🥈 **Granite 350M (Prueba A/B - Alta Velocidad)**:
+3. 🥉 **Granite 350M (Prueba A/B - Alta Velocidad)**:
    - Rendimiento sobresaliente (27/30 en prompts multilingües) sin requerir tokens de razonamiento [8].
    - Huella de memoria mínima (~220 MB) y tiempo de carga rápido.
 
@@ -57,8 +63,8 @@ Este documento define la arquitectura y selección de Modelos de Lenguaje Peque�
 ## 3. Requerimientos de Hardware, Rendimiento y Ejecucion
 
 ### Métricas de Rendimiento en Cliente
-- **Descarga Inicial**: 180 MB – 398 MB (cuantización Q4_K_M / q4f16). Se almacena permanentemente en `CacheStorage` o `IndexedDB` [15].
-- **Uso de Memoria**: 0.4 GB – 0.8 GB de VRAM/RAM host.
+- **Descarga Inicial**: 180 MB – 398 MB (Q4_K_M / q4f16) a ~1019 MB (Qwen3.5-0.8B `Q8_0` GGUF). Se almacena permanentemente en `CacheStorage` o `IndexedDB` [15].
+- **Uso de Memoria**: 0.4 GB – 1.2 GB de VRAM/RAM host.
 - **Tasa de Generación**:
   - **WebGPU**: 20 – 30+ tokens/segundo [19].
   - **WASM (Multihilo SIMD)**: 8 – 15 tokens/segundo (suficiente para generación corta de JSON).
