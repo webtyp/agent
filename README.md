@@ -1,47 +1,63 @@
 # Agent
 <img src="docs/img/badges.svg">
 
-Autonomous AI Agent system for `webtyp`.
+The AI agent of webtyp: an orchestrator that takes a user's message, lets a language model
+decide which tools to use, runs them, and returns an answer. It is written in Go, compiles to
+WebAssembly with TinyGo, and is meant to run **inside the browser**. The model, memory and tools
+are all injected.
+
+## Getting started
+
+**See it working.** The tests are the runnable example. `orchestrator_test.go` wires a scripted
+model, the in-memory store and a real MCP server:
+
+```bash
+gotest            # host: vet, race, coverage, wasm
+gotest -tinygo    # the browser compiler
+```
+
+**Run it against a real model on your machine.** Start llama.cpp's `llama-server` on port 8080
+and run the integration scenarios. See
+[Implementation → real-model integration test](docs/IMPLEMENTATION.md#real-model-integration-test).
+
+**Use it in an application.** Build a `Config` with a model (`llm.Client` + `llm.TokenCounter`),
+its `Budget`, a `MemoryStore` (`webtyp/agentmemory`), an ID generator and your tools, then call
+`agent.New(cfg)` and `Run(ctx, sessionID, text)`. Every field is described in
+[Types](docs/TYPES.md).
+
+**Change the agent.** Read [AGENTS.md](AGENTS.md) and [Agent patterns](docs/DEFAULT_LLM_SKILL.md)
+first.
 
 ## Documentation
 
-### Current Plan
-*   [**PLAN.md**](docs/PLAN.md) — the dispatchable plan for THIS repository's next change.
-    Created and consumed by codejob; absent between dispatches.
-*   [**MASTER_PLAN.md**](docs/MASTER_PLAN.md) — **master index**: browser-native semantic search on IndexedDB.
-    Architecture, shared contracts, and what's still pending across every repository involved.
-*   [**docs/history/**](docs/history/) — how the design got here: every correction, every PR
-    postmortem, every closed decision. Frozen; MASTER_PLAN.md is the live document.
+### Plans
+- [Ecosystem master plan](docs/AGENT_ECOSYSTEM_MASTER_PLAN.md): which repository owns each
+  concern (model contract, context, memory, retrieval, voice), the order of the work, and the
+  open decisions.
 
-### Core Guides
-*   [System Architecture](docs/ARCHITECTURE.md) - High-level definition and contracts.
-*   [Implementation Guide](docs/IMPLEMENTATION.md) - Technical implementation details.
-*   [Canonical Types](docs/TYPES.md) - All value types: Message, Episode, LLMRequest/Response, ToolDef, etc.
-*   [Custom Agent Research](docs/CUSTOM_AGENT.md) - Research and principles for building agents.
-*   [LLM Skill Reference](docs/DEFAULT_LLM_SKILL.md) - Mandatory engineering rules for LLMs working on this project.
+### Guides
+- [Architecture](docs/ARCHITECTURE.md): what the agent is, where it runs, the loop, and the contracts.
+- [Types](docs/TYPES.md): which library owns each type, and the fields of the ones declared here.
+- [Implementation](docs/IMPLEMENTATION.md): files, tests, and the real-model integration test.
+- [Agent patterns](docs/DEFAULT_LLM_SKILL.md): FSM, bounded loop, tool errors, identity, MCP.
+- [Agent guide](AGENTS.md): build, import and layout rules for any change.
 
-### Research
-*   [Small embedding models](docs/SMALL_MODEL_FOR_EMBEDING.md) - **consolidated**: the 384-dim
-    multilingual candidates (Granite 97M R2, Bekko a25m/a8m), what "active parameters"
-    actually means for browser compute, and the two measurements that pick the winner.
-    This document governs PLAN D5.
-*   [Cloudflare Workers AI](docs/CLOUDFLARE_AI_WORKER.md) - embedding and LLM model costs on
-    Workers AI; why the catalogue was ruled out as the model source (PLAN D4).
+### Diagrams
+- [System context](docs/diagrams/SYSTEM_CONTEXT.md)
+- [ReAct + reflection flow](docs/diagrams/REACT_FLOW.md)
+- [FSM state machine](docs/diagrams/FSM_STATE.md)
+- [Memory architecture](docs/diagrams/MEMORY_ARCHITECTURE.md)
+- [MCP client flow](docs/diagrams/MCP_CLIENT_FLOW.md)
+- [Tool search](docs/diagrams/TOOL_SEARCH.md)
+- [Integration test scenario](docs/diagrams/INTEGRATION_SCENARIO.md)
 
 ### History
-*   [SQLite Memory Architecture](docs/history/MEMORY_SQLITE.md) - **superseded**. The SQLite +
-    `sqlite-vec` study; kept for its memory categorisation and RRF reasoning, which the current
-    plan reuses.
-*   [Isomorphic Compatibility Refactor](docs/history/ISOMORPHIC-COMPATIBILITY.md) - executed.
-*   [WebGPU Encoder](docs/history/WEBGPU_ENCODER.md) - **archived, not cancelled**. The
-    browser only embeds queries, which runs on CPU/WASM (PLAN D4b), so no GPU is needed.
-    Unarchive only if the phase-3 benchmark says otherwise.
+- [Isomorphic compatibility refactor](docs/history/ISOMORPHIC-COMPATIBILITY.md): executed (written when the project was named `tinywasm`).
 
-### Architecture Diagrams
-*   [System Context](docs/diagrams/SYSTEM_CONTEXT.md)
-*   [ReAct + Reflection Flow](docs/diagrams/REACT_FLOW.md)
-*   [FSM State Machine](docs/diagrams/FSM_STATE.md)
-*   [Memory Schema & Architecture](docs/diagrams/MEMORY_ARCHITECTURE.md)
-*   [MCP Client Flow](docs/diagrams/MCP_CLIENT_FLOW.md)
-*   [Context Window Logic](docs/diagrams/CONTEXT_WINDOW.md)
-*   [Integration Test Scenario](docs/diagrams/INTEGRATION_SCENARIO.md)
+### Moved to their own repositories
+Semantic search → [`webtyp/retrieval`](https://github.com/webtyp/retrieval) ·
+context engineering → [`webtyp/agentcontext`](https://github.com/webtyp/agentcontext) ·
+small browser LLMs → [`webtyp/llm`](https://github.com/webtyp/llm) ·
+speech-to-text → [`webtyp/stt`](https://github.com/webtyp/stt) ·
+text-to-speech → [`webtyp/tts`](https://github.com/webtyp/tts) ·
+SQLite memory study → [`webtyp/agentmemory`](https://github.com/webtyp/agentmemory).

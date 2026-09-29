@@ -7,7 +7,7 @@ type LLMClient interface {
 }
 
 // Each contract is what one collaborator of the orchestrator actually needs. See
-// docs/MASTER_PLAN.md D7/D8 and docs/plans/agent.md §2 for the argument.
+// webtyp/retrieval docs/SEMANTIC_SEARCH_MASTER_PLAN.md D7/D8 for the argument.
 type ConversationStore interface {
 	EnsureSession(ctx *context.Context, sessionID string) error
 	AppendMessage(ctx *context.Context, sessionID string, msg Message) error

@@ -1,8 +1,9 @@
 # Agent Guide — `webtyp/agent`
 
 Constraints for agents working on this library. **Read this before any change.**
-The master index of the semantic-search work is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); the
-current work order, when one exists, is [docs/PLAN.md](docs/PLAN.md).
+The ecosystem plan (which repository owns what, and what is still open) is
+[docs/AGENT_ECOSYSTEM_MASTER_PLAN.md](docs/AGENT_ECOSYSTEM_MASTER_PLAN.md); the current work order,
+when one exists, is [docs/PLAN.md](docs/PLAN.md).
 
 ---
 
@@ -12,12 +13,14 @@ current work order, when one exists, is [docs/PLAN.md](docs/PLAN.md).
 of tools and a model into work. It is meant to be dropped into *any* project — a server, a CLI, a
 browser tab — and to compose the other webtyp libraries rather than reimplement them.
 
-Two consequences follow, and every rule below is one of them:
+Three consequences follow, and every rule below is one of them:
 
-1. **It owns no backend.** How an agent stores its memory is a property of the *consuming project*,
+1. **It only orchestrates.** The model contract is `webtyp/llm`; deciding what the model sees
+   is `webtyp/agentcontext`; search is `webtyp/retrieval`. Their logic never comes back here.
+2. **It owns no backend.** How an agent stores its memory is a property of the *consuming project*,
    not of this library. `agent` declares the `MemoryStore` port; the implementation lives elsewhere
    (`webtyp/agentmemory`, or the app itself).
-2. **It must be able to compile for the browser.** An orchestrator that cannot run next to
+3. **It must be able to compile for the browser.** An orchestrator that cannot run next to
    `webtyp/vectordb` in a WASM tab is not agnostic; it is a server library with ambitions.
 
 ---
@@ -62,8 +65,8 @@ Any remaining third-party module in `go.mod` is a question to answer, not a fact
 - a **conformance suite** any implementation can run against itself,
 - at most an in-memory reference implementation, with no driver and no SQL.
 
-It may **not** contain a SQLite store, a schema string, or a `sql.Open`. Concretely: `memory.go`
-and `schema.go` as they stand today belong in `webtyp/agentmemory`, behind the same interface.
+It may **not** contain a database store, a schema string, or a `sql.Open`. The real
+implementation is `webtyp/agentmemory`, over `orm` + `ddl`.
 
 The pattern is `webtyp/storage`'s, and it is worth copying exactly: a port, a conformance suite, a
 reference `mem` backend, and every real backend in its own repo. That is what lets `orm`, `ddl`,
@@ -102,7 +105,7 @@ Cualquier test nuevo que solo consuma la API pública debe ir en `package agent_
 
 | Debt | Where it goes |
 |---|---|
-| `SQLiteMemoryStore` + `schema` in the root package | `webtyp/agentmemory`; this repo keeps the port + conformance suite |
+| model types (`LLMClient`, `LLMRequest`, …) and `context_window.go` still declared here | `webtyp/llm` and `webtyp/agentcontext`; removed by `docs/PLAN.md` (phase 3 of the ecosystem plan) |
 
 Each of these moves under its own `docs/PLAN.md`, dispatched deliberately. Do not bundle them into
 an unrelated PR, and do not leave one half-done.

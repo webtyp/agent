@@ -11,7 +11,7 @@ stateDiagram-v2
 
     Reasoning --> Acting : tool_use response
     Reasoning --> Reflecting : end_turn response
-    Reasoning --> Responding : MaxIterations superado
+    Reasoning --> Responding : MaxIterations superado o StopMaxTokens
 
     Acting --> Reasoning : Observacion lista
     Acting --> Responding : MaxRetries superado
@@ -37,9 +37,9 @@ stateDiagram-v2
 | From | To | Trigger | Code location |
 |------|----|---------|---------------|
 | `Idle` | `Reasoning` | `Run()` called with user input | `orchestrator.go` |
-| `Reasoning` | `Acting` | `LLMResponse.StopReason == "tool_use"` | `orchestrator.go` |
-| `Reasoning` | `Reflecting` | `LLMResponse.StopReason == "end_turn"` | `orchestrator.go` |
-| `Reasoning` | `Responding` | `iterations >= MaxIterations` **(guardrail)** | `orchestrator.go` |
+| `Reasoning` | `Acting` | `resp.StopReason == llm.StopToolUse` | `orchestrator.go` |
+| `Reasoning` | `Reflecting` | `resp.StopReason == llm.StopEndTurn` | `orchestrator.go` |
+| `Reasoning` | `Responding` | `iterations >= MaxIterations` **(guardrail)**, or `resp.StopReason == llm.StopMaxTokens` (returns an error: the answer was cut) | `orchestrator.go` |
 | `Acting` | `Reasoning` | Tool executed (success or error — both become observations) | `orchestrator.go` |
 | `Acting` | `Responding` | `retries >= MaxRetries` **(guardrail)** | `orchestrator.go` |
 | `Reflecting` | `Reasoning` | Reflection verdict is `INSUFFICIENT` | `orchestrator.go` |

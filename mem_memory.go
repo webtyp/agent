@@ -13,7 +13,7 @@ import (
 // implementation any other MemoryStore is checked against via conformance.Run. Not for
 // production use: SearchKnowledge does a case-insensitive substring match, not semantic
 // search (that requires an embedder, which this package deliberately does not depend on —
-// see MASTER_PLAN.md D7/§5). idGen mints record ids — never construct a concrete generator
+// see webtyp/retrieval docs/SEMANTIC_SEARCH_MASTER_PLAN.md D7). idGen mints record ids — never construct a concrete generator
 // inside this package (model.IDGenerator's own doc comment says so); the caller injects one
 // (e.g. webtyp.com/unixid). Safe for concurrent use.
 func NewMemMemory(idGen model.IDGenerator) MemoryStore {

@@ -1,3 +1,7 @@
+> **Historical, executed.** Written when the project was named `tinywasm` (now `webtyp`) and
+> memory used SQLite (now `webtyp/agentmemory` over `orm` + `ddl`). Kept unchanged as a record;
+> do not follow its paths or dependencies.
+
 # Plan: Isomorphic Compatibility Refactor — `context`, `time`, and `agent`
 
 ## Context

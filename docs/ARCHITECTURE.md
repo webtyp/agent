@@ -1,182 +1,159 @@
-# Architecture of Custom Agent System
+# Architecture — `webtyp/agent`
 
-This document defines the technical architecture for implementing a custom Agentic AI system, based on the "bare metal" design principles described in `docs/CUSTOM_AGENT.md` and following the engineering guidelines from `docs/DEFAULT_LLM_SKILL.md`.
+> **STATUS (remove this note when agent v0.6.0 is published):** this document describes the
+> target of [PLAN.md](PLAN.md). Until then, the code still declares the model types itself and
+> builds the context in `context_window.go`.
 
-## 1. Overview and Philosophy
+## What this is
 
-The objective is to build a manually orchestrated agent system, avoiding the complexity and abstraction of "black box" frameworks (such as LangChain or AutoGen). The architecture prioritizes:
+`agent` is the **orchestrator** of the webtyp ecosystem. It runs the loop that turns a user
+message, a set of tools and a language model into an answer. The model reasons, the agent runs
+the tools the model asks for, feeds the results back, and repeats until the model answers.
 
-*   **Deterministic Control:** Use of Finite State Machines (FSM) to govern execution flow.
-*   **Dependency Injection:** All external components (LLM, Database, Tools) are defined via interfaces.
-*   **Memory Isolation:** Session data is isolated by `session_id` (single-tenant, multi-session). Global knowledge (`session_id IS NULL` in the `knowledge` table) is readable by all sessions — see [MEMORY.md, section 2.3](history/MEMORY_SQLITE.md).
-*   **Observability:** Complete traceability of each reasoning step and tool execution.
+You use it from an application. You give it a model, a memory store and tools in a `Config`,
+and call `agent.Run(ctx, sessionID, text)`.
 
-## 2. Core System Components
+It is designed to run **inside the browser**, in Go compiled to WebAssembly with TinyGo, next
+to the rest of the webtyp stack. It also compiles for a server. It owns no backend and no model.
+Both are injected, so one agent binary works with any of them.
 
-The architecture is divided into single-responsibility layers, decoupled via Go interfaces.
+## Principles
 
-### 2.1. The Core Engine
+- **Deterministic control.** A finite-state machine (FSM) decides which step can follow which.
+  The model chooses *what* to do, and code decides *whether that is allowed now*.
+- **Dependency injection.** The model (`llm.Client`), its tokenizer (`llm.TokenCounter`),
+  memory (`MemoryStore`) and tools are interfaces. `New(cfg)` is the only place concrete
+  types meet.
+- **One concern per repository.** The agent orchestrates. Deciding what the model sees is
+  `webtyp/agentcontext`, the model contract is `webtyp/llm`, storage is `webtyp/agentmemory`,
+  and search is `webtyp/retrieval`. See the
+  [ecosystem master plan](AGENT_ECOSYSTEM_MASTER_PLAN.md).
+- **Session isolation.** Every memory read and write is scoped by `sessionID`. Global
+  knowledge (empty session) is readable from every session. Knowledge private to a session
+  is never visible from another.
+- **Observability.** Every tool execution is logged (`ToolLogStore`) with input, output, error
+  and duration.
 
-The heart of the system is the `AgentNode`, which acts as the main orchestrator. It contains no business-specific logic, only the control logic for the reasoning loop.
+## Where it runs
 
-*   **Responsibility:** Manage the cycle *Perceive -> Reason -> Act -> Observe*.
-*   **Implementation:** A control loop based on FSM (Finite State Machine).
+```mermaid
+flowchart TD
+    UI[UI thread<br/>small TinyGo binary: the page] -->|user text| W[Web Worker<br/>TinyGo binary]
+    W --> AG[agent.Run]
+    AG --> CTX[agentcontext<br/>compile the request]
+    AG --> M[llm.Client<br/>in-browser model runtime]
+    AG --> MEM[agentmemory<br/>IndexedDB]
+    AG --> T[tools<br/>local Go or MCP servers]
+    W -->|answer text| UI
+```
 
-### 2.2. Memory Layer
+The whole agent, including the model, memory and search, runs in one Web Worker. The page
+itself stays a small binary that only sends text and shows the answer. A long inference then
+never freezes the UI, and the page does not download model code before it can render. How the
+worker and the model runtime are built is an open decision in the
+[ecosystem master plan](AGENT_ECOSYSTEM_MASTER_PLAN.md).
 
-Following the unified architecture defined in `docs/history/MEMORY_SQLITE.md`, the memory system is designed to be isomorphic (Backend/WASM) using **SQLite** as the core engine.
+## Components
 
-> **Superseded for the WASM target.** SQLite remains the backend engine and describes the code as it stands today, but it does not compile under TinyGo for `GOOS=js GOARCH=wasm`. The browser path is IndexedDB through `storage.Conn`; the rewrite is Phase 4 of [docs/PLAN.md](PLAN.md).
+| Component | File(s) | Responsibility |
+|---|---|---|
+| Constructor | `agent.go` | validates `Config`, applies defaults, connects tools. It is the only wiring point |
+| Orchestrator | `orchestrator.go`, `turn.go` | the ReAct + reflection loop, memory I/O, calls to the models |
+| FSM | `fsm.go` | valid state transitions |
+| Tool registry | `mcp_registry.go`, `mcp_client.go`, `mcp_json.go` | merges local tools, in-process MCP handlers and remote MCP servers |
+| Memory ports | `interfaces.go` | `ConversationStore`, `SummaryStore`, `KnowledgeStore`, `ToolLogStore` |
+| Reference memory | `mem_memory.go` | in-memory `MemoryStore` for tests and demos (no persistence) |
+| Conformance suite | `conformance/` | the tests every `MemoryStore` implementation must pass |
 
-*   **Structure:** Relational tables + FTS5 (lexical search, v1) + `sqlite-vec` vector search with RRF fusion (v2). Isomorphic: same schema runs on Backend (Go) and Frontend (WASM).
-*   **Components:**
-    1.  **Short-Term Memory:** `messages` table (Conversation history).
-    2.  **Episodic Memory:** `episodes` table (Summarized past contexts).
-    3.  **Semantic Memory:** `knowledge` table with Vector embeddings and FTS5 hybrid search.
-    4.  **Action Memory:** `tool_logs` table (Audit and self-correction).
+Value types: [TYPES.md](TYPES.md).
 
-[See Memory Architecture Diagram](diagrams/MEMORY_ARCHITECTURE.md)
+## The loop
 
-### 2.3. MCP Client
-    
-A component that manages agent capabilities by consuming tools from external MCP servers.
+1. `Run` stores the user's message as a `Turn`.
+2. **Reasoning:** load recent turns and summaries. If they no longer fit the budget, summarize
+   the oldest ones (`agentcontext.Compact`). Then build the request (`agentcontext.Compile`)
+   and call the primary model.
+3. **Acting:** if the model asked for tools (`llm.StopToolUse`), run them. Errors become
+   observations the model can correct from, not failures.
+4. **Reflecting:** when the model answers (`llm.StopEndTurn`), a second, cheap call judges the
+   answer `SUFFICIENT` or `INSUFFICIENT`. An insufficient answer goes back to reasoning with the
+   critique.
+5. **Responding:** return the answer. `MaxIterations` and `MaxRetries` bound the loop. A model
+   cut off at its output limit (`llm.StopMaxTokens`) returns an explicit error.
 
-*   **Role:** The agent acts as an **MCP Client** consuming tools from external MCP servers via JSON-RPC 2.0 over HTTP.
-*   **Abstraction:** Defines a common interface for discovering and calling tools.
-*   **Security:** Validates arguments against JSON schemas before execution.
+Diagrams: [ReAct flow](diagrams/REACT_FLOW.md) · [FSM](diagrams/FSM_STATE.md) ·
+[MCP client](diagrams/MCP_CLIENT_FLOW.md) · [memory](diagrams/MEMORY_ARCHITECTURE.md) ·
+[system context](diagrams/SYSTEM_CONTEXT.md) · [tool search](diagrams/TOOL_SEARCH.md) · [integration scenario](diagrams/INTEGRATION_SCENARIO.md).
+The context window, step by step, is documented where the logic lives:
+[`agentcontext/docs/diagrams/CONTEXT_WINDOW.md`](https://github.com/webtyp/agentcontext/blob/main/docs/diagrams/CONTEXT_WINDOW.md).
 
-### 2.4. LLM Client (Model Gateway)
-
-An interface that abstracts the model provider (OpenAI, Anthropic, Llama), allowing you to swap the "brain" without altering the agent logic.
-
-## 3. Architecture Diagrams
-
-### 3.1. System Context Diagram
-
-[See Context Diagram](diagrams/SYSTEM_CONTEXT.md)
-
-### 3.2. Execution Flow (ReAct Pattern)
-
-This sequence diagram illustrates how the Orchestrator manages the lifecycle of a request using the ReAct pattern.
-
-[See ReAct Flow Diagram](diagrams/REACT_FLOW.md)
-
-### 3.3. Finite State Machine (FSM)
-
-Agent behavior is not free-form; it is constrained by states to ensure reliability.
-
-[See FSM State Diagram](diagrams/FSM_STATE.md)
-
-### 3.4. MCP Client Flow
-
-Tool discovery and execution via JSON-RPC 2.0 over HTTP.
-
-[See MCP Client Flow Diagram](diagrams/MCP_CLIENT_FLOW.md)
-
-### 3.5. Context Window Management
-
-Token budget strategy and summarization trigger logic.
-
-[See Context Window Diagram](diagrams/CONTEXT_WINDOW.md)
-
-### 4.0. Canonical Types
-
-All value types referenced by the interfaces below (`Message`, `Episode`, `Knowledge`, `ToolLog`,
-`LLMRequest`, `LLMResponse`, `ToolDef`, `ToolCall`, `ContextWindowConfig`) are defined in
-[docs/TYPES.md](TYPES.md).
-
-### 4.1. Canonical Interfaces
+## Contracts
 
 ```go
-package agent
-
-import "context"
-
-// LLMClient abstracts the model provider (Anthropic, OpenAI, etc).
-type LLMClient interface {
-    Generate(ctx context.Context, req LLMRequest) (LLMResponse, error)
+// Memory: declared here, implemented by webtyp/agentmemory (or the application).
+type ConversationStore interface {
+	EnsureSession(ctx *context.Context, sessionID string) error
+	AppendTurn(ctx *context.Context, sessionID string, t agentcontext.Turn) error
+	GetTurns(ctx *context.Context, sessionID string, limit int) ([]agentcontext.Turn, error)
+	DeleteTurns(ctx *context.Context, sessionID string, ids []string) error
 }
-
-// MemoryStore defines the unified SQLite-based storage.
-type MemoryStore interface {
-    EnsureSession(ctx context.Context, sessionID string) error
-    AppendMessage(ctx context.Context, sessionID string, msg Message) error
-    GetMessages(ctx context.Context, sessionID string, limit int) ([]Message, error)
-    DeleteMessages(ctx context.Context, sessionID string, ids []string) error
-    SaveEpisode(ctx context.Context, sessionID, summary string, tokenCount int, fromID, toID string) error
-    GetEpisodes(ctx context.Context, sessionID string, limit int) ([]Episode, error)
-    SaveKnowledge(ctx context.Context, sessionID, content, source string) error
-    SearchKnowledge(ctx context.Context, query, sessionID string, limit int) ([]Knowledge, error)
-    LogToolCall(ctx context.Context, sessionID, toolName, inputJSON, outputText, errText string, durationMS int64) error
-    GetToolLogs(ctx context.Context, sessionID, toolName string, limit int) ([]ToolLog, error)
+type SummaryStore interface {
+	SaveSummary(ctx *context.Context, sessionID string, s agentcontext.Summary) error
+	GetSummaries(ctx *context.Context, sessionID string, limit int) ([]agentcontext.Summary, error)
 }
-
-// MCPServer is satisfied by any running MCP server.
-// The agent connects to it via JSON-RPC 2.0 over HTTP.
-type MCPServer interface {
-    URL() string
+type KnowledgeStore interface {
+	SaveKnowledge(ctx *context.Context, sessionID, content, source string) error
+	SearchKnowledge(ctx *context.Context, query, sessionID string, limit int) ([]Knowledge, error)
 }
+type ToolLogStore interface {
+	LogToolCall(ctx *context.Context, sessionID, toolName, inputJSON, outputText, errText string, durationMS int64) error
+	GetToolLogs(ctx *context.Context, sessionID, toolName string, limit int) ([]ToolLog, error)
+}
+type MemoryStore interface { ConversationStore; SummaryStore; KnowledgeStore; ToolLogStore }
 
-// Tool represents a direct in-process capability.
+// Tools.
 type Tool interface {
-    Name() string
-    Description() string
-    InputSchema() string
-    Execute(ctx context.Context, argsJSON string) (string, error)
+	Name() string
+	Description() string
+	InputSchema() string
+	Execute(ctx *context.Context, argsJSON string) (string, error)
 }
+type MCPServer interface{ URL() string }
 ```
 
-### 4.2. Configuration and Identity
+The model contract (`llm.Client`, `llm.TokenCounter`) is in
+[`webtyp/llm`](https://github.com/webtyp/llm). `SearchKnowledge` takes **text**, never a
+vector. Turning text into a vector is the memory implementation's job.
 
-The agent is initialized via a `Config` struct that defines its persona, routing, and capabilities.
+## Tools
 
-```go
-type IdentityConfig struct {
-    Name         string   // Identity name
-    Role         string   // Functional description
-    Instructions string   // Behavioral constraints
-    Goals        []string // High-level objectives
-}
+Three sources are merged at construction:
 
-type LLMConfig struct {
-    Primary    LLMClient // Main reasoning/acting model
-    Reflector  LLMClient // For self-correction (defaults to Primary)
-    Summarizer LLMClient // For context window compression (defaults to Primary)
-}
+| Source | Config field | Execution | Use |
+|---|---|---|---|
+| Local | `LocalTools []Tool` | direct Go call | pure functions, internal state |
+| Handler | `MCPHandlers []MCPServer` | JSON-RPC 2.0 to `URL()` | MCP servers running in the same process |
+| Remote | `MCPServers []string` | JSON-RPC 2.0 over HTTP | external MCP servers |
 
-type Config struct {
-    Identity      IdentityConfig
-    LLMs          LLMConfig
-    Memory        MemoryStore
-    
-    // Three-Tier Tool Registry
-    LocalTools    []Tool      // Direct Go tools
-    MCPHandlers   []MCPServer // Running MCP servers (programmatic)
-    MCPServers    []string    // Remote MCP URLs
-    
-    ContextWindow ContextWindowConfig
-    MaxIterations int
-    MCPTimeout    time.Duration
-}
+**Tool search** (STATUS, remove this note when agent v0.6.0 is published: planned, not yet
+implemented). The model is not shown every tool. Each step offers `search_tools(query)` plus
+the tools discovered so far in this `Run`. When the model searches, a `ToolIndex` (a port:
+`NewMemToolIndex` here ranks by keywords, and `webtyp/agentmemory` ranks by meaning over
+`webtyp/retrieval`) returns the matching tools. Those tools become callable **directly**,
+with their real JSON Schema, so the model runtime can constrain the arguments. A tool that was
+not discovered is refused. This keeps the request small for a small model. The reasoning is in
+[`agentcontext/docs/CONTEXT_ENGINEERING.md`](https://github.com/webtyp/agentcontext/blob/main/docs/CONTEXT_ENGINEERING.md),
+and the flow is in [TOOL_SEARCH](diagrams/TOOL_SEARCH.md).
+
+## Voice (version 2)
+
+Version 1 is text only. In version 2 the **application** wraps the agent, and the agent's
+input and output stay text:
+
+```mermaid
+flowchart TD
+    Mic[webtyp/media<br/>microphone] -->|audio.PCM| STT[webtyp/stt<br/>Transcriber]
+    STT -->|text| Run[agent.Run]
+    Run -->|text| TTS[webtyp/tts<br/>Synthesizer]
+    TTS -->|audio.PCM| Out[playback]
 ```
-
-### 4.3. Three-Tier Tool Registry
-
-The agent supports three independent tool sources, merged at startup:
-
-| Source | Type | Execution | Use Case |
-|--------|------|-----------|----------|
-| **Local** | `[]Tool` | Direct in-process | Crypto, math, internal state |
-| **Handler** | `[]MCPServer` | JSON-RPC via URL() | Local `*mcpserve.Handler` refs |
-| **Remote** | `[]string` | JSON-RPC via URL | External/Cloud MCP servers |
-
-## 5. Implementation Strategy
-
-1.  **No Frameworks:** Go's standard library (`net/http`, `encoding/json`, `context`) will be used for core logic.
-2.  **Testing:**
-    *   Mocks for `LLMClient` and `MemoryStore` for deterministic unit testing.
-    *   Integration tests to verify the complete FSM flow.
-3.  **Error Handling:** Tool failures should not stop the agent; they should be reported as error observations to the LLM so it can attempt corrections (Auto-correction).
-
----
-*This document serves as an architectural reference and should be updated if the fundamental system patterns change.*
