@@ -1,23 +1,21 @@
 package agent
 
-import "webtyp.com/context"
+import (
+	"webtyp.com/agentcontext"
+	"webtyp.com/context"
+	"webtyp.com/llm"
+)
 
-type LLMClient interface {
-	Generate(ctx *context.Context, req LLMRequest) (LLMResponse, error)
-}
-
-// Each contract is what one collaborator of the orchestrator actually needs. See
-// webtyp/retrieval docs/SEMANTIC_SEARCH_MASTER_PLAN.md D7/D8 for the argument.
 type ConversationStore interface {
 	EnsureSession(ctx *context.Context, sessionID string) error
-	AppendMessage(ctx *context.Context, sessionID string, msg Message) error
-	GetMessages(ctx *context.Context, sessionID string, limit int) ([]Message, error)
-	DeleteMessages(ctx *context.Context, sessionID string, ids []string) error
+	AppendTurn(ctx *context.Context, sessionID string, t agentcontext.Turn) error
+	GetTurns(ctx *context.Context, sessionID string, limit int) ([]agentcontext.Turn, error) // the `limit` most recent
+	DeleteTurns(ctx *context.Context, sessionID string, ids []string) error
 }
 
-type EpisodeStore interface {
-	SaveEpisode(ctx *context.Context, sessionID, summary string, tokenCount int, fromID, toID string) error
-	GetEpisodes(ctx *context.Context, sessionID string, limit int) ([]Episode, error)
+type SummaryStore interface {
+	SaveSummary(ctx *context.Context, sessionID string, s agentcontext.Summary) error
+	GetSummaries(ctx *context.Context, sessionID string, limit int) ([]agentcontext.Summary, error) // the `limit` most recent
 }
 
 // KnowledgeStore's SearchKnowledge takes TEXT, never a vector — the caller (agentmemory)
@@ -34,13 +32,21 @@ type ToolLogStore interface {
 	GetToolLogs(ctx *context.Context, sessionID, toolName string, limit int) ([]ToolLog, error)
 }
 
-// MemoryStore is the composed contract. Config.Memory keeps this type — structurally
-// identical to the old 11-method interface, so no call site changes.
+// MemoryStore is the composed contract. Config.Memory keeps this type.
 type MemoryStore interface {
 	ConversationStore
-	EpisodeStore
+	SummaryStore
 	KnowledgeStore
 	ToolLogStore
+}
+
+// ToolIndex finds, among every tool the agent can run, the ones that match what the model
+// is looking for. webtyp/agentmemory implements it by meaning; NewMemToolIndex by keywords.
+type ToolIndex interface {
+	// IndexTools replaces the indexed set with tools.
+	IndexTools(ctx *context.Context, tools []llm.ToolDef) error
+	// SearchTools returns the names of at most limit tools, most relevant first; empty when none match.
+	SearchTools(ctx *context.Context, query string, limit int) ([]string, error)
 }
 
 type MCPServer interface {

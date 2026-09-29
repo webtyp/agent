@@ -1,9 +1,5 @@
 # Implementation — `webtyp/agent`
 
-> **STATUS (remove this note when agent v0.6.0 is published):** the file list and tests
-> describe the target of [PLAN.md](PLAN.md). Until then, `context_window.go` still exists and
-> the integration test still targets Ollama.
-
 This page is for someone about to change the code. It covers where each piece lives, how it is
 tested, and how to run the real-model test. The *why* is in [ARCHITECTURE.md](ARCHITECTURE.md),
 the types in [TYPES.md](TYPES.md), and the rules every change must follow in

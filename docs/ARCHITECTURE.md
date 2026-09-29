@@ -1,9 +1,5 @@
 # Architecture — `webtyp/agent`
 
-> **STATUS (remove this note when agent v0.6.0 is published):** this document describes the
-> target of [PLAN.md](PLAN.md). Until then, the code still declares the model types itself and
-> builds the context in `context_window.go`.
-
 ## What this is
 
 `agent` is the **orchestrator** of the webtyp ecosystem. It runs the loop that turns a user
@@ -135,8 +131,7 @@ Three sources are merged at construction:
 | Handler | `MCPHandlers []MCPServer` | JSON-RPC 2.0 to `URL()` | MCP servers running in the same process |
 | Remote | `MCPServers []string` | JSON-RPC 2.0 over HTTP | external MCP servers |
 
-**Tool search** (STATUS, remove this note when agent v0.6.0 is published: planned, not yet
-implemented). The model is not shown every tool. Each step offers `search_tools(query)` plus
+**Tool search:** The model is not shown every tool. Each step offers `search_tools(query)` plus
 the tools discovered so far in this `Run`. When the model searches, a `ToolIndex` (a port:
 `NewMemToolIndex` here ranks by keywords, and `webtyp/agentmemory` ranks by meaning over
 `webtyp/retrieval`) returns the matching tools. Those tools become callable **directly**,

@@ -1,8 +1,5 @@
 # Tool search
 
-> **STATUS (remove this note when agent v0.6.0 is published):** describes the target of the
-> tool-search plan; today every tool is still sent on every step.
-
 The model is not shown every tool. On each step it is offered `search_tools` plus the tools it
 already discovered in this `Run`. A tool it has not discovered cannot run, even if the model
 names it.
