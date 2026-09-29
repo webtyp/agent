@@ -1,206 +1,201 @@
 package agent
 
 import (
-	"sort"
 	"sync"
 
+	"webtyp.com/agentcontext"
 	"webtyp.com/context"
 	"webtyp.com/fmt"
-	"webtyp.com/model"
 )
 
-// NewMemMemory returns an in-memory MemoryStore with no external dependency — the reference
-// implementation any other MemoryStore is checked against via conformance.Run. Not for
-// production use: SearchKnowledge does a case-insensitive substring match, not semantic
-// search (that requires an embedder, which this package deliberately does not depend on —
-// see webtyp/retrieval docs/SEMANTIC_SEARCH_MASTER_PLAN.md D7). idGen mints record ids — never construct a concrete generator
-// inside this package (model.IDGenerator's own doc comment says so); the caller injects one
-// (e.g. webtyp.com/unixid). Safe for concurrent use.
-func NewMemMemory(idGen model.IDGenerator) MemoryStore {
-	return &memMemory{idGen: idGen}
+type sessionTurns struct {
+	sessionID string
+	turns     []agentcontext.Turn
+}
+
+type sessionSummaries struct {
+	sessionID string
+	summaries []agentcontext.Summary
 }
 
 type memMemory struct {
-	mu        sync.Mutex
-	idGen     model.IDGenerator
-	messages  []Message
-	episodes  []Episode
+	mu        sync.RWMutex
+	turns     []sessionTurns
+	summaries []sessionSummaries
 	knowledge []Knowledge
 	toolLogs  []ToolLog
 }
 
+// NewMemMemory returns an in-memory MemoryStore reference implementation.
+func NewMemMemory() MemoryStore {
+	return &memMemory{}
+}
+
 func (m *memMemory) EnsureSession(ctx *context.Context, sessionID string) error {
-	return nil
-}
-
-func (m *memMemory) AppendMessage(ctx *context.Context, sessionID string, msg Message) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if msg.SessionID == "" {
-		msg.SessionID = sessionID
-	}
-	m.messages = append(m.messages, msg)
-	return nil
-}
-
-func (m *memMemory) GetMessages(ctx *context.Context, sessionID string, limit int) ([]Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var matched []Message
-	for _, msg := range m.messages {
-		if msg.SessionID == sessionID {
-			matched = append(matched, msg)
+	for _, s := range m.turns {
+		if s.sessionID == sessionID {
+			return nil
 		}
 	}
-
-	sort.SliceStable(matched, func(i, j int) bool {
-		return matched[i].CreatedAt < matched[j].CreatedAt
-	})
-
-	if limit > 0 && len(matched) > limit {
-		matched = matched[len(matched)-limit:]
-	}
-
-	res := make([]Message, len(matched))
-	copy(res, matched)
-	return res, nil
-}
-
-func (m *memMemory) DeleteMessages(ctx *context.Context, sessionID string, ids []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	var updated []Message
-	for _, msg := range m.messages {
-		if msg.SessionID == sessionID && containsString(ids, msg.ID) {
-			continue
-		}
-		updated = append(updated, msg)
-	}
-	m.messages = updated
+	m.turns = append(m.turns, sessionTurns{sessionID: sessionID})
+	m.summaries = append(m.summaries, sessionSummaries{sessionID: sessionID})
 	return nil
 }
 
-func (m *memMemory) SaveEpisode(ctx *context.Context, sessionID, summary string, tokenCount int, fromID, toID string) error {
+func (m *memMemory) AppendTurn(ctx *context.Context, sessionID string, t agentcontext.Turn) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.episodes = append(m.episodes, Episode{
-		ID:         m.idGen.NewID(),
-		SessionID:  sessionID,
-		Summary:    summary,
-		TokenCount: tokenCount,
-		FromMsgID:  fromID,
-		ToMsgID:    toID,
-	})
+
+	for i, s := range m.turns {
+		if s.sessionID == sessionID {
+			m.turns[i].turns = append(m.turns[i].turns, t)
+			return nil
+		}
+	}
+	m.turns = append(m.turns, sessionTurns{sessionID: sessionID, turns: []agentcontext.Turn{t}})
 	return nil
 }
 
-func (m *memMemory) GetEpisodes(ctx *context.Context, sessionID string, limit int) ([]Episode, error) {
+func (m *memMemory) GetTurns(ctx *context.Context, sessionID string, limit int) ([]agentcontext.Turn, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, s := range m.turns {
+		if s.sessionID == sessionID {
+			list := s.turns
+			if limit > 0 && len(list) > limit {
+				list = list[len(list)-limit:]
+			}
+			out := make([]agentcontext.Turn, len(list))
+			copy(out, list)
+			return out, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *memMemory) DeleteTurns(ctx *context.Context, sessionID string, ids []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var matched []Episode
-	for _, ep := range m.episodes {
-		if ep.SessionID == sessionID {
-			matched = append(matched, ep)
+	for i, s := range m.turns {
+		if s.sessionID == sessionID {
+			var filtered []agentcontext.Turn
+			for _, t := range s.turns {
+				remove := false
+				for _, id := range ids {
+					if t.ID == id {
+						remove = true
+						break
+					}
+				}
+				if !remove {
+					filtered = append(filtered, t)
+				}
+			}
+			m.turns[i].turns = filtered
+			return nil
 		}
 	}
+	return nil
+}
 
-	sort.SliceStable(matched, func(i, j int) bool {
-		return matched[i].CreatedAt < matched[j].CreatedAt
-	})
+func (m *memMemory) SaveSummary(ctx *context.Context, sessionID string, s agentcontext.Summary) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if limit > 0 && len(matched) > limit {
-		matched = matched[len(matched)-limit:]
+	for i, sum := range m.summaries {
+		if sum.sessionID == sessionID {
+			m.summaries[i].summaries = append(m.summaries[i].summaries, s)
+			return nil
+		}
 	}
+	m.summaries = append(m.summaries, sessionSummaries{sessionID: sessionID, summaries: []agentcontext.Summary{s}})
+	return nil
+}
 
-	res := make([]Episode, len(matched))
-	copy(res, matched)
-	return res, nil
+func (m *memMemory) GetSummaries(ctx *context.Context, sessionID string, limit int) ([]agentcontext.Summary, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, sum := range m.summaries {
+		if sum.sessionID == sessionID {
+			list := sum.summaries
+			if limit > 0 && len(list) > limit {
+				list = list[len(list)-limit:]
+			}
+			out := make([]agentcontext.Summary, len(list))
+			copy(out, list)
+			return out, nil
+		}
+	}
+	return nil, nil
 }
 
 func (m *memMemory) SaveKnowledge(ctx *context.Context, sessionID, content, source string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.knowledge = append(m.knowledge, Knowledge{
-		ID:        m.idGen.NewID(),
+
+	k := Knowledge{
+		ID:        fmt.Sprintf("k-%d", len(m.knowledge)+1),
 		SessionID: sessionID,
 		Content:   content,
 		Source:    source,
-	})
+	}
+	m.knowledge = append(m.knowledge, k)
 	return nil
 }
 
 func (m *memMemory) SearchKnowledge(ctx *context.Context, query, sessionID string, limit int) ([]Knowledge, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	q := fmt.ToLower(query)
-	var matched []Knowledge
+	var result []Knowledge
 	for _, k := range m.knowledge {
 		if k.SessionID == "" || k.SessionID == sessionID {
-			if fmt.Contains(fmt.ToLower(k.Content), q) {
-				matched = append(matched, k)
+			if query == "" || fmt.Contains(k.Content, query) {
+				result = append(result, k)
+				if limit > 0 && len(result) >= limit {
+					break
+				}
 			}
 		}
 	}
-
-	if limit > 0 && len(matched) > limit {
-		matched = matched[:limit]
-	}
-
-	res := make([]Knowledge, len(matched))
-	copy(res, matched)
-	return res, nil
+	return result, nil
 }
 
 func (m *memMemory) LogToolCall(ctx *context.Context, sessionID, toolName, inputJSON, outputText, errText string, durationMS int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.toolLogs = append(m.toolLogs, ToolLog{
-		ID:         m.idGen.NewID(),
+
+	log := ToolLog{
+		ID:         fmt.Sprintf("tl-%d", len(m.toolLogs)+1),
 		SessionID:  sessionID,
 		ToolName:   toolName,
 		InputJSON:  inputJSON,
 		OutputText: outputText,
 		ErrText:    errText,
 		DurationMS: durationMS,
-	})
+	}
+	m.toolLogs = append(m.toolLogs, log)
 	return nil
 }
 
 func (m *memMemory) GetToolLogs(ctx *context.Context, sessionID, toolName string, limit int) ([]ToolLog, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	var matched []ToolLog
-	for _, tl := range m.toolLogs {
-		if tl.SessionID == sessionID {
-			if toolName == "" || tl.ToolName == toolName {
-				matched = append(matched, tl)
+	var result []ToolLog
+	for _, log := range m.toolLogs {
+		if log.SessionID == sessionID && (toolName == "" || log.ToolName == toolName) {
+			result = append(result, log)
+			if limit > 0 && len(result) >= limit {
+				break
 			}
 		}
 	}
-
-	sort.SliceStable(matched, func(i, j int) bool {
-		return matched[i].CreatedAt < matched[j].CreatedAt
-	})
-
-	if limit > 0 && len(matched) > limit {
-		matched = matched[len(matched)-limit:]
-	}
-
-	res := make([]ToolLog, len(matched))
-	copy(res, matched)
-	return res, nil
-}
-
-func containsString(list []string, v string) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return result, nil
 }

@@ -8,16 +8,34 @@ import (
 // New creates a new Agent instance.
 func New(cfg Config) (*Agent, error) {
 	if cfg.LLMs.Primary == nil {
-		return nil, fmt.Errf("agent: LLMs.Primary is required")
+		return nil, fmt.Errf(errPrimaryRequired)
+	}
+	if cfg.Tokens == nil {
+		return nil, fmt.Errf(errTokensRequired)
 	}
 	if cfg.Memory == nil {
-		return nil, fmt.Errf("agent: Memory is required")
+		return nil, fmt.Errf(errMemoryRequired)
 	}
 	if cfg.IDGen == nil {
-		return nil, fmt.Errf("agent: IDGen is required")
+		return nil, fmt.Errf(errIDGenRequired)
+	}
+	if cfg.ToolIndex == nil {
+		return nil, fmt.Errf(errToolIndexRequired)
+	}
+	if err := cfg.Budget.Validate(); err != nil {
+		return nil, fmt.Errf("agent: Budget: %w", err)
 	}
 
 	// Apply defaults
+	if cfg.ToolSearchLimit == 0 {
+		cfg.ToolSearchLimit = 5
+	}
+	if cfg.RecentTurns == 0 {
+		cfg.RecentTurns = 20
+	}
+	if cfg.RecentSummaries == 0 {
+		cfg.RecentSummaries = 5
+	}
 	if cfg.MaxIterations == 0 {
 		cfg.MaxIterations = 10
 	}
@@ -26,19 +44,6 @@ func New(cfg Config) (*Agent, error) {
 	}
 	if cfg.MCPTimeoutMS == 0 {
 		cfg.MCPTimeoutMS = 30000
-	}
-	// Context Window defaults
-	if cfg.ContextWindow.MaxTokens == 0 {
-		cfg.ContextWindow.MaxTokens = 8192 // Default limit
-	}
-	if cfg.ContextWindow.SummarizeAt == 0 {
-		cfg.ContextWindow.SummarizeAt = 0.8
-	}
-	if cfg.ContextWindow.MaxRecentMsgs == 0 {
-		cfg.ContextWindow.MaxRecentMsgs = 20
-	}
-	if cfg.ContextWindow.MaxEpisodes == 0 {
-		cfg.ContextWindow.MaxEpisodes = 5
 	}
 
 	// Initialize Registry
@@ -65,6 +70,19 @@ func New(cfg Config) (*Agent, error) {
 		if err := registry.addMCPClient(ctx, client); err != nil {
 			return nil, fmt.Errf("agent: failed to connect to MCP server %s: %w", url, err)
 		}
+	}
+
+	// Check reserved tool name search_tools
+	tools := registry.getTools()
+	for _, t := range tools {
+		if t.Name == searchToolsName {
+			return nil, fmt.Errf(errSearchToolsName)
+		}
+	}
+
+	// Index registered tools
+	if err := cfg.ToolIndex.IndexTools(ctx, tools); err != nil {
+		return nil, fmt.Errf("agent: indexing tools: %w", err)
 	}
 
 	return &Agent{

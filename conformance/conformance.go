@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"webtyp.com/agent"
+	"webtyp.com/agentcontext"
 	"webtyp.com/context"
+	"webtyp.com/llm"
 )
 
 // Factory builds a fresh, empty agent.MemoryStore for ONE test. Called once per subtest —
@@ -19,13 +21,14 @@ func Run(t *testing.T, f Factory) {
 		t.Fatal("conformance: Factory.New is required")
 	}
 	t.Run("conversation_ensure_session_idempotent", func(t *testing.T) { conversationEnsureSessionIdempotent(t, f) })
-	t.Run("conversation_append_and_get_messages", func(t *testing.T) { conversationAppendAndGetMessages(t, f) })
-	t.Run("conversation_get_messages_respects_limit", func(t *testing.T) { conversationGetMessagesRespectsLimit(t, f) })
+	t.Run("conversation_append_and_get_turns", func(t *testing.T) { conversationAppendAndGetTurns(t, f) })
+	t.Run("conversation_get_turns_respects_limit", func(t *testing.T) { conversationGetTurnsRespectsLimit(t, f) })
 	t.Run("conversation_delete_removes_only_specified", func(t *testing.T) { conversationDeleteRemovesOnlySpecified(t, f) })
 	t.Run("conversation_session_isolation", func(t *testing.T) { conversationSessionIsolation(t, f) })
-	t.Run("episode_save_and_get", func(t *testing.T) { episodeSaveAndGet(t, f) })
-	t.Run("episode_get_respects_limit", func(t *testing.T) { episodeGetRespectsLimit(t, f) })
-	t.Run("episode_session_isolation", func(t *testing.T) { episodeSessionIsolation(t, f) })
+	t.Run("summary_save_and_get", func(t *testing.T) { summarySaveAndGet(t, f) })
+	t.Run("summary_get_respects_limit", func(t *testing.T) { summaryGetRespectsLimit(t, f) })
+	t.Run("summary_session_isolation", func(t *testing.T) { summarySessionIsolation(t, f) })
+	t.Run("summary_round_trips_all_fields", func(t *testing.T) { summaryRoundTripsAllFields(t, f) })
 	t.Run("knowledge_search_finds_exact_content", func(t *testing.T) { knowledgeSearchFindsExactContent(t, f) })
 	t.Run("knowledge_global_visible_from_any_session", func(t *testing.T) { knowledgeGlobalVisibleFromAnySession(t, f) })
 	t.Run("knowledge_session_scoped_not_visible_from_other_session", func(t *testing.T) { knowledgeSessionScopedNotVisibleFromOtherSession(t, f) })
@@ -47,44 +50,52 @@ func conversationEnsureSessionIdempotent(t *testing.T, f Factory) {
 	}
 }
 
-func conversationAppendAndGetMessages(t *testing.T, f Factory) {
+func conversationAppendAndGetTurns(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
-	msg := agent.Message{ID: "m1", SessionID: "s1", Role: "user", Content: "hello"}
-	if err := mem.AppendMessage(ctx, "s1", msg); err != nil {
-		t.Fatalf("AppendMessage: %v", err)
+	turn := agentcontext.Turn{
+		ID:        "m1",
+		Message:   llm.Message{Role: llm.RoleUser, Content: "hello"},
+		CreatedAt: 1,
+	}
+	if err := mem.AppendTurn(ctx, "s1", turn); err != nil {
+		t.Fatalf("AppendTurn: %v", err)
 	}
 
-	got, err := mem.GetMessages(ctx, "s1", 10)
+	got, err := mem.GetTurns(ctx, "s1", 10)
 	if err != nil {
-		t.Fatalf("GetMessages: %v", err)
+		t.Fatalf("GetTurns: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("got %d messages, want 1", len(got))
+		t.Fatalf("got %d turns, want 1", len(got))
 	}
-	if got[0].ID != "m1" || got[0].Content != "hello" {
-		t.Fatalf("unexpected message content: %+v", got[0])
+	if got[0].ID != "m1" || got[0].Message.Content != "hello" {
+		t.Fatalf("unexpected turn content: %+v", got[0])
 	}
 }
 
-func conversationGetMessagesRespectsLimit(t *testing.T, f Factory) {
+func conversationGetTurnsRespectsLimit(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
 	for i := 1; i <= 5; i++ {
-		msg := agent.Message{ID: "m", SessionID: "s1", Role: "user", Content: "msg", CreatedAt: int64(i)}
-		if err := mem.AppendMessage(ctx, "s1", msg); err != nil {
-			t.Fatalf("AppendMessage %d: %v", i, err)
+		turn := agentcontext.Turn{
+			ID:        "m",
+			Message:   llm.Message{Role: llm.RoleUser, Content: "msg"},
+			CreatedAt: int64(i),
+		}
+		if err := mem.AppendTurn(ctx, "s1", turn); err != nil {
+			t.Fatalf("AppendTurn %d: %v", i, err)
 		}
 	}
 
-	got, err := mem.GetMessages(ctx, "s1", 3)
+	got, err := mem.GetTurns(ctx, "s1", 3)
 	if err != nil {
-		t.Fatalf("GetMessages: %v", err)
+		t.Fatalf("GetTurns: %v", err)
 	}
 	if len(got) != 3 {
-		t.Fatalf("got %d messages, want 3", len(got))
+		t.Fatalf("got %d turns, want 3", len(got))
 	}
 }
 
@@ -92,24 +103,24 @@ func conversationDeleteRemovesOnlySpecified(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
-	mem.AppendMessage(ctx, "s1", agent.Message{ID: "m1", SessionID: "s1", Content: "one"})
-	mem.AppendMessage(ctx, "s1", agent.Message{ID: "m2", SessionID: "s1", Content: "two"})
-	mem.AppendMessage(ctx, "s1", agent.Message{ID: "m3", SessionID: "s1", Content: "three"})
+	mem.AppendTurn(ctx, "s1", agentcontext.Turn{ID: "m1", Message: llm.Message{Content: "one"}})
+	mem.AppendTurn(ctx, "s1", agentcontext.Turn{ID: "m2", Message: llm.Message{Content: "two"}})
+	mem.AppendTurn(ctx, "s1", agentcontext.Turn{ID: "m3", Message: llm.Message{Content: "three"}})
 
-	if err := mem.DeleteMessages(ctx, "s1", []string{"m2"}); err != nil {
-		t.Fatalf("DeleteMessages: %v", err)
+	if err := mem.DeleteTurns(ctx, "s1", []string{"m2"}); err != nil {
+		t.Fatalf("DeleteTurns: %v", err)
 	}
 
-	got, err := mem.GetMessages(ctx, "s1", 10)
+	got, err := mem.GetTurns(ctx, "s1", 10)
 	if err != nil {
-		t.Fatalf("GetMessages: %v", err)
+		t.Fatalf("GetTurns: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("got %d messages after delete, want 2", len(got))
+		t.Fatalf("got %d turns after delete, want 2", len(got))
 	}
 	for _, m := range got {
 		if m.ID == "m2" {
-			t.Fatalf("deleted message m2 still present")
+			t.Fatalf("deleted turn m2 still present")
 		}
 	}
 }
@@ -124,70 +135,125 @@ func conversationSessionIsolation(t *testing.T, f Factory) {
 	if err := mem.EnsureSession(ctx, "session-b"); err != nil {
 		t.Fatalf("EnsureSession(b): %v", err)
 	}
-	if err := mem.AppendMessage(ctx, "session-a", agent.Message{ID: "m1", SessionID: "session-a", Role: "user", Content: "hello from a"}); err != nil {
-		t.Fatalf("AppendMessage: %v", err)
+	if err := mem.AppendTurn(ctx, "session-a", agentcontext.Turn{ID: "m1", Message: llm.Message{Role: llm.RoleUser, Content: "hello from a"}}); err != nil {
+		t.Fatalf("AppendTurn: %v", err)
 	}
 
-	gotB, err := mem.GetMessages(ctx, "session-b", 10)
+	gotB, err := mem.GetTurns(ctx, "session-b", 10)
 	if err != nil {
-		t.Fatalf("GetMessages(b): %v", err)
+		t.Fatalf("GetTurns(b): %v", err)
 	}
 	if len(gotB) != 0 {
-		t.Fatalf("session-b sees %d messages from session-a, want 0", len(gotB))
+		t.Fatalf("session-b sees %d turns from session-a, want 0", len(gotB))
 	}
 }
 
-func episodeSaveAndGet(t *testing.T, f Factory) {
+func summarySaveAndGet(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
-	if err := mem.SaveEpisode(ctx, "s1", "summary text", 100, "m1", "m5"); err != nil {
-		t.Fatalf("SaveEpisode: %v", err)
+	sum := agentcontext.Summary{
+		ID:         "e1",
+		Text:       "summary text",
+		Tokens:     100,
+		FromTurnID: "m1",
+		ToTurnID:   "m5",
+		CreatedAt:  1,
+	}
+	if err := mem.SaveSummary(ctx, "s1", sum); err != nil {
+		t.Fatalf("SaveSummary: %v", err)
 	}
 
-	got, err := mem.GetEpisodes(ctx, "s1", 10)
+	got, err := mem.GetSummaries(ctx, "s1", 10)
 	if err != nil {
-		t.Fatalf("GetEpisodes: %v", err)
+		t.Fatalf("GetSummaries: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("got %d episodes, want 1", len(got))
+		t.Fatalf("got %d summaries, want 1", len(got))
 	}
-	if got[0].Summary != "summary text" || got[0].TokenCount != 100 {
-		t.Fatalf("unexpected episode content: %+v", got[0])
+	if got[0].Text != "summary text" || got[0].Tokens != 100 {
+		t.Fatalf("unexpected summary content: %+v", got[0])
 	}
 }
 
-func episodeGetRespectsLimit(t *testing.T, f Factory) {
+func summaryGetRespectsLimit(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
 	for i := 1; i <= 5; i++ {
-		if err := mem.SaveEpisode(ctx, "s1", "sum", i*10, "m1", "m2"); err != nil {
-			t.Fatalf("SaveEpisode %d: %v", i, err)
+		sum := agentcontext.Summary{
+			ID:         "e",
+			Text:       "sum",
+			Tokens:     i * 10,
+			FromTurnID: "m1",
+			ToTurnID:   "m2",
+			CreatedAt:  int64(i),
+		}
+		if err := mem.SaveSummary(ctx, "s1", sum); err != nil {
+			t.Fatalf("SaveSummary %d: %v", i, err)
 		}
 	}
 
-	got, err := mem.GetEpisodes(ctx, "s1", 2)
+	got, err := mem.GetSummaries(ctx, "s1", 2)
 	if err != nil {
-		t.Fatalf("GetEpisodes: %v", err)
+		t.Fatalf("GetSummaries: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("got %d episodes, want 2", len(got))
+		t.Fatalf("got %d summaries, want 2", len(got))
 	}
 }
 
-func episodeSessionIsolation(t *testing.T, f Factory) {
+func summarySessionIsolation(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
-	mem.SaveEpisode(ctx, "session-a", "summary a", 50, "m1", "m2")
+	mem.SaveSummary(ctx, "session-a", agentcontext.Summary{
+		ID:         "e1",
+		Text:       "summary a",
+		Tokens:     50,
+		FromTurnID: "m1",
+		ToTurnID:   "m2",
+		CreatedAt:  1,
+	})
 
-	gotB, err := mem.GetEpisodes(ctx, "session-b", 10)
+	gotB, err := mem.GetSummaries(ctx, "session-b", 10)
 	if err != nil {
-		t.Fatalf("GetEpisodes(b): %v", err)
+		t.Fatalf("GetSummaries(b): %v", err)
 	}
 	if len(gotB) != 0 {
-		t.Fatalf("session-b sees %d episodes from session-a, want 0", len(gotB))
+		t.Fatalf("session-b sees %d summaries from session-a, want 0", len(gotB))
+	}
+}
+
+func summaryRoundTripsAllFields(t *testing.T, f Factory) {
+	ctx := context.Background()
+	mem := f.New(t)
+
+	sum := agentcontext.Summary{
+		ID:         "s-123",
+		Text:       "detailed summary text",
+		Tokens:     42,
+		FromTurnID: "turn-1",
+		ToTurnID:   "turn-10",
+		CreatedAt:  1234567890,
+	}
+
+	if err := mem.SaveSummary(ctx, "s1", sum); err != nil {
+		t.Fatalf("SaveSummary: %v", err)
+	}
+
+	got, err := mem.GetSummaries(ctx, "s1", 10)
+	if err != nil {
+		t.Fatalf("GetSummaries: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d summaries, want 1", len(got))
+	}
+
+	s := got[0]
+	if s.ID != sum.ID || s.Text != sum.Text || s.Tokens != sum.Tokens ||
+		s.FromTurnID != sum.FromTurnID || s.ToTurnID != sum.ToTurnID || s.CreatedAt != sum.CreatedAt {
+		t.Fatalf("summary roundtrip mismatch: got %+v, want %+v", s, sum)
 	}
 }
 

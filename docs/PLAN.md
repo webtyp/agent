@@ -3,8 +3,9 @@ PLAN: "refactor!: agent consumes llm and agentcontext; feat: tool search (search
 TAG: v0.6.0
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 8612478597620030459
+PR: https://github.com/webtyp/agent/pull/13
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.

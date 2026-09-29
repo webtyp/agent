@@ -1,6 +1,6 @@
 module webtyp.com/agent
 
-go 1.25.2
+go 1.26.8
 
 require (
 	webtyp.com/context v0.0.23
@@ -13,7 +13,9 @@ require (
 )
 
 require (
+	webtyp.com/agentcontext v0.1.0 // indirect
 	webtyp.com/base64 v0.0.6 // indirect
 	webtyp.com/fetch v0.1.28 // indirect
+	webtyp.com/llm v0.1.0 // indirect
 	webtyp.com/router v0.1.43 // indirect
 )

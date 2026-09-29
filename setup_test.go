@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	testIDGen = idGen
-	testMemory = NewMemMemory(idGen)
+	testMemory = NewMemMemory()
 
 	srv, err := mcp.NewServer(
 		mcp.Config{Name: "test", Version: "1.0.0", Authorize: mcp.AllowAll},
@@ -59,9 +59,9 @@ func TestMain(m *testing.M) {
 	}
 
 	testServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var ctx context.Context
+		ctx := context.Background()
 		body, _ := io.ReadAll(r.Body)
-		resp := srv.HandleMessage(&ctx, body)
+		resp := srv.HandleMessage(ctx, body)
 		w.Header().Set("Content-Type", "application/json")
 		var out []byte
 		if enc, ok := resp.(model.Encodable); ok {

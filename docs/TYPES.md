@@ -1,9 +1,5 @@
 # Types — `webtyp/agent`
 
-> **STATUS (remove this note when agent v0.6.0 is published):** this describes the target of
-> [PLAN.md](PLAN.md). Until then `types.go` still declares `Message`, `Episode`, `LLMRequest`,
-> `LLMResponse`, `ToolDef`, `ToolCall`, `ContextWindowConfig` and `IdentityConfig`.
-
 This page says **which library owns each type** the agent uses, and documents the ones declared
 here. The code (`types.go`) is the source of truth for fields, and this page explains how the
 types fit together.

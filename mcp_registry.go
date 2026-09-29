@@ -6,6 +6,7 @@ import (
 	"webtyp.com/context"
 	"webtyp.com/fmt"
 	"webtyp.com/json"
+	"webtyp.com/llm"
 	"webtyp.com/mcp"
 )
 
@@ -17,7 +18,7 @@ type mcpCaller interface {
 
 type mcpToolEntry struct {
 	Client mcpCaller
-	Def    ToolDef
+	Def    llm.ToolDef
 }
 
 type mcpRegistry struct {
@@ -82,7 +83,7 @@ func (r *mcpRegistry) addMCPClient(ctx *context.Context, client mcpCaller) error
 		r.mcpTools = removeMCPToolByName(r.mcpTools, t.Name)
 		r.mcpTools = append(r.mcpTools, mcpToolEntry{
 			Client: client,
-			Def: ToolDef{
+			Def: llm.ToolDef{
 				Name:        t.Name,
 				Description: t.Description,
 				InputSchema: t.InputSchema,
@@ -92,14 +93,14 @@ func (r *mcpRegistry) addMCPClient(ctx *context.Context, client mcpCaller) error
 	return nil
 }
 
-func (r *mcpRegistry) getTools() []ToolDef {
+func (r *mcpRegistry) getTools() []llm.ToolDef {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var tools []ToolDef
+	var tools []llm.ToolDef
 
 	for _, t := range r.localTools {
-		tools = append(tools, ToolDef{
+		tools = append(tools, llm.ToolDef{
 			Name:        t.Name(),
 			Description: t.Description(),
 			InputSchema: t.InputSchema(),

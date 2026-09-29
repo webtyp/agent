@@ -3,30 +3,30 @@ package agent
 import (
 	"webtyp.com/context"
 	"webtyp.com/fmt"
+	"webtyp.com/llm"
 	"webtyp.com/time"
 )
 
 // Run executes the full ReAct + Reflection loop for a single user query.
 func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, error) {
-	// 2. Initialize: Ensure session exists
+	// Initialize: Ensure session exists
 	if err := a.mem.EnsureSession(ctx, sessionID); err != nil {
 		return "", fmt.Errf("failed to ensure session: %w", err)
 	}
 
-	// Append user message
-	userMsg := Message{
-		ID:         a.idGen.NewID(),
-		SessionID:  sessionID,
-		Role:       "user",
-		Content:    userQuery,
-		CreatedAt:  time.Now() / 1e9,
-		TokenCount: 0,
-	}
-	if err := a.mem.AppendMessage(ctx, sessionID, userMsg); err != nil {
-		return "", fmt.Errf("failed to append user message: %w", err)
+	// Append user turn
+	userTurn := a.newTurn(llm.Message{
+		Role:    llm.RoleUser,
+		Content: userQuery,
+	})
+	if err := a.mem.AppendTurn(ctx, sessionID, userTurn); err != nil {
+		return "", fmt.Errf("failed to append user turn: %w", err)
 	}
 
-	// 3. Loop
+	// Tool search: initialize offered tools per Run
+	offered := []llm.ToolDef{searchToolsDef}
+
+	// Loop
 	iterations := 0
 	actingFailures := 0
 
@@ -39,14 +39,11 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, 
 	for iterations < a.cfg.MaxIterations {
 		iterations++
 
-		// Build Context Window
-		req, err := a.prepareContext(ctx, sessionID)
+		// Build Request
+		req, err := a.request(ctx, sessionID, offered)
 		if err != nil {
 			return "", fmt.Errf("failed to prepare context: %w", err)
 		}
-
-		// Add tools to request
-		req.Tools = a.registry.getTools()
 
 		if a.fsm.current != StateReasoning {
 			if err := a.fsm.transition(StateReasoning); err != nil {
@@ -54,41 +51,69 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, 
 			}
 		}
 
-		resp, err := a.llms.Primary.Generate(ctx, *req)
+		resp, err := a.llms.Primary.Generate(ctx, req)
 		if err != nil {
 			return "", fmt.Errf("LLM generation failed: %w", err)
 		}
 
+		if resp.StopReason == llm.StopMaxTokens {
+			if err := a.fsm.transition(StateResponding); err != nil {
+				return "", err
+			}
+			if err := a.fsm.transition(StateIdle); err != nil {
+				return "", err
+			}
+			return "", fmt.Errf(errOutputTruncated)
+		}
+
 		// Acting
-		if resp.StopReason == "tool_use" {
+		if resp.StopReason == llm.StopToolUse {
 			if err := a.fsm.transition(StateActing); err != nil {
 				return "", err
 			}
 
-			// Append assistant message with tool calls
-			assistantMsg := Message{
-				ID:         a.idGen.NewID(),
-				SessionID:  sessionID,
-				Role:       "assistant",
-				Content:    resp.Text,
-				ToolCalls:  resp.ToolCalls,
-				TokenCount: 0,
-				CreatedAt:  time.Now() / 1e9,
-			}
+			// Append assistant turn with tool calls
+			assistantTurn := a.newTurn(llm.Message{
+				Role:      llm.RoleAssistant,
+				Content:   resp.Text,
+				ToolCalls: resp.ToolCalls,
+			})
 
-			if err := a.mem.AppendMessage(ctx, sessionID, assistantMsg); err != nil {
-				return "", fmt.Errf("failed to save assistant message: %w", err)
+			if err := a.mem.AppendTurn(ctx, sessionID, assistantTurn); err != nil {
+				return "", fmt.Errf("failed to save assistant turn: %w", err)
 			}
 
 			// Execute tools
 			for _, call := range resp.ToolCalls {
 				startTime := time.Now()
-				output, err := a.registry.execute(ctx, call.Name, call.Input)
+
+				var output string
+				var execErr error
+
+				if call.Name == searchToolsName {
+					output = a.searchTools(ctx, sessionID, call, &offered)
+				} else {
+					isOffered := false
+					for _, o := range offered {
+						if o.Name == call.Name {
+							isOffered = true
+							break
+						}
+					}
+
+					if !isOffered {
+						execErr = fmt.Errf("tool %s is not available; call search_tools first", call.Name)
+						output = fmt.Sprintf("Error: %s", execErr.Error())
+					} else {
+						output, execErr = a.registry.execute(ctx, call.Name, call.Input)
+					}
+				}
+
 				duration := (time.Now() - startTime) / 1e6
 
 				var errText string
-				if err != nil {
-					errText = err.Error()
+				if execErr != nil {
+					errText = execErr.Error()
 					actingFailures++
 				} else {
 					actingFailures = 0
@@ -100,22 +125,19 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, 
 				}
 
 				// Append tool result message
-				toolMsg := Message{
-					ID:         a.idGen.NewID(),
-					SessionID:  sessionID,
-					Role:       "tool",
+				toolMsg := llm.Message{
+					Role:       llm.RoleTool,
 					Content:    output,
 					ToolName:   call.Name,
 					ToolCallID: call.ID,
-					CreatedAt:  time.Now() / 1e9,
-					TokenCount: 0,
 				}
-				if err != nil {
-					toolMsg.Content = fmt.Sprintf("Error: %s", err.Error())
+				if execErr != nil && !fmt.Contains(output, "Error:") {
+					toolMsg.Content = fmt.Sprintf("Error: %s", execErr.Error())
 				}
 
-				if err := a.mem.AppendMessage(ctx, sessionID, toolMsg); err != nil {
-					return "", fmt.Errf("failed to save tool message: %w", err)
+				toolTurn := a.newTurn(toolMsg)
+				if err := a.mem.AppendTurn(ctx, sessionID, toolTurn); err != nil {
+					return "", fmt.Errf("failed to save tool turn: %w", err)
 				}
 
 				if actingFailures >= a.cfg.MaxRetries {
@@ -129,21 +151,17 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, 
 		}
 
 		// Reflection
-		if resp.StopReason == "end_turn" {
+		if resp.StopReason == llm.StopEndTurn {
 			if err := a.fsm.transition(StateReflecting); err != nil {
 				return "", err
 			}
 
-			candidateMsg := Message{
-				ID:         a.idGen.NewID(),
-				SessionID:  sessionID,
-				Role:       "assistant",
-				Content:    resp.Text,
-				TokenCount: 0,
-				CreatedAt:  time.Now() / 1e9,
-			}
-			if err := a.mem.AppendMessage(ctx, sessionID, candidateMsg); err != nil {
-				return "", fmt.Errf("failed to save candidate message: %w", err)
+			candidateTurn := a.newTurn(llm.Message{
+				Role:    llm.RoleAssistant,
+				Content: resp.Text,
+			})
+			if err := a.mem.AppendTurn(ctx, sessionID, candidateTurn); err != nil {
+				return "", fmt.Errf("failed to save candidate turn: %w", err)
 			}
 
 			reflector := a.cfg.LLMs.Reflector
@@ -151,29 +169,21 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, 
 				reflector = a.cfg.LLMs.Primary
 			}
 
-			reflectionPrompt := fmt.Sprintf(`
-Analyze the following user query and the assistant's response.
-User Query: "%s"
-Assistant Response: "%s"
+			reflectionPrompt := fmt.Sprintf(reflectionPromptFormat, userQuery, resp.Text)
 
-Is the response complete and accurate?
-If YES, respond with "SUFFICIENT".
-If NO, respond with "INSUFFICIENT" followed by a short critique.
-`, userQuery, resp.Text)
-
-			reflectReq := LLMRequest{
-				SystemPrompt: "You are a critic that evaluates AI responses.",
-				Messages: []Message{
-					{Role: "user", Content: reflectionPrompt},
+			reflectReq := llm.Request{
+				System: reflectorSystem,
+				Messages: []llm.Message{
+					{Role: llm.RoleUser, Content: reflectionPrompt},
 				},
-				MaxTokens: 100,
+				MaxOutputTokens: reflectionOutputTokens,
 			}
 
 			reflectResp, err := reflector.Generate(ctx, reflectReq)
 			if err != nil {
 				fmt.Printf("Reflection failed: %v\n", err)
 			} else {
-				isSufficient := reflectResp.Text == "SUFFICIENT" || reflectResp.Text == "SUFFICIENT." || fmt.Contains(reflectResp.Text, "SUFFICIENT") && !fmt.Contains(reflectResp.Text, "INSUFFICIENT")
+				isSufficient := reflectResp.Text == "SUFFICIENT" || reflectResp.Text == "SUFFICIENT." || (fmt.Contains(reflectResp.Text, "SUFFICIENT") && !fmt.Contains(reflectResp.Text, "INSUFFICIENT"))
 
 				if isSufficient {
 					if err := a.fsm.transition(StateResponding); err != nil {
@@ -186,16 +196,12 @@ If NO, respond with "INSUFFICIENT" followed by a short critique.
 				} else {
 					critique := reflectResp.Text
 
-					feedbackMsg := Message{
-						ID:         a.idGen.NewID(),
-						SessionID:  sessionID,
-						Role:       "user",
-						Content:    fmt.Sprintf("Reflection feedback: %s. Please improve the answer.", critique),
-						CreatedAt:  time.Now() / 1e9,
-						TokenCount: 0,
-					}
-					if err := a.mem.AppendMessage(ctx, sessionID, feedbackMsg); err != nil {
-						return "", fmt.Errf("failed to save feedback: %w", err)
+					feedbackTurn := a.newTurn(llm.Message{
+						Role:    llm.RoleUser,
+						Content: fmt.Sprintf("Reflection feedback: %s. Please improve the answer.", critique),
+					})
+					if err := a.mem.AppendTurn(ctx, sessionID, feedbackTurn); err != nil {
+						return "", fmt.Errf("failed to save feedback turn: %w", err)
 					}
 					continue
 				}
@@ -209,6 +215,8 @@ If NO, respond with "INSUFFICIENT" followed by a short critique.
 			}
 			return resp.Text, nil
 		}
+
+		return "", fmt.Errf("agent: unknown stop reason %q", resp.StopReason)
 	}
 
 	return "", fmt.Errf("max iterations reached")
