@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-29 · llm, audio, embed v0.3.0 published; agentcontext, stt, nn running
+> **Status:** IN PROGRESS · 2026-09-29 · 14 tags published; agent, decoder, weightsc, tokenizer running in Jules
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -26,23 +26,30 @@ to know what depends on what, what is decided, and what is still open.
 
 | Repository | One concern | Kind | State |
 |---|---|---|---|
-| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.5; phase 3 queue written (blocked on `agentcontext`) |
-| `llm` | the contract with a language model: `Client`, `Streamer`, `TokenCounter`, message/request/response types | contract | **v0.1.0 published** |
-| `agentcontext` | the context compiler: what the model sees each turn, within a token budget | pure library | **running** (phase 2) |
-| `agentmemory` | the agent's ports implemented over `orm` + `ddl` (SQL or IndexedDB), later `ToolIndex` over `retrieval` | implementation | v0.1; phase 3b plan written |
-| `retrieval` | chunking, ingestion and search; owns the semantic-search master plan | implementation | docs only; first plan waits for `bekko`/`embed` split |
-| `audio` | `audio.PCM`, the sound value shared by voice pieces | contract | **v0.1.0 published** |
-| `stt` | speech-to-text contract (`Transcriber`, `StreamTranscriber`) | contract | **running** |
-| `tts` | text-to-speech contract (`Synthesizer`, `StreamSynthesizer`) | contract | plan written, unblocked |
-| `embed` | the `Embedder` contract (+ `MockEmbedder`) | contract | **v0.3.0 published** (`CountTokens`); v0.4.0 plan deletes `StaticEmbedder` |
-| `bekko` | `bekko-embedding-v1-a8m`, implements `embed.Embedder` (was `embed.StaticEmbedder`) | implementation | plan written (waits for `encoder`) |
-| `nn` | stateless operations: matmul, norms, activations, softmax, RoPE | pure library | **running** |
-| `encoder` | the encoder graph (was `transformer`; GitHub already renamed) | implementation | plan written (waits for `nn`) |
-| `decoder` | the causal decoder graph: full attention + Gated DeltaNet, KV/recurrent state | implementation | docs only |
-| `qwen` | Qwen3.5: implements `llm.Client`/`Streamer`/`TokenCounter`; chat template, tool calls, constrained output | implementation | docs only |
-| `opfs` | browser implementation of the file read/write contract (OPFS, in a Worker) | implementation | docs only; contract name pending |
-| `phoneme` | Spanish grapheme-to-phoneme in Go (MIT, no espeak) for v2 TTS | implementation | docs only |
-| `vector`, `vectordb`, `tokenizer`, `weights`, `weightsc` | the semantic-search stack | mixed | published; `vectordb` must add `CountTokens` to its test double when it bumps `embed` |
+| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | **running** (queue: llm/agentcontext refactor + tool search) |
+| `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, types | contract | v0.1.0 |
+| `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.1.0 |
+| `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | phase 3b plan written (waits for agent v0.6.0) |
+| `retrieval` | chunking, ingestion, search; owns the semantic-search master plan | implementation | docs; first plan now unblocked (`embed.CountTokens`) |
+| `audio` | `audio.PCM` | contract | v0.1.0 |
+| `stt` | `Transcriber`, `StreamTranscriber` | contract | v0.1.0 |
+| `tts` | `Synthesizer`, `StreamSynthesizer` | contract | v0.0.2 |
+| `files` | whole-file read/write contract: `Reader`, `Writer`, `Appender`, `ErrNotExist`, conformance, `mem` | contract | v0.0.2 |
+| `kvdb` | key-value store; its `Store` is now `files.ReadWriter` + `files.Appender` | implementation | v0.1.1 |
+| `pdf` | PDF generation; reads/writes through `files` (`WithFiles`) | implementation | v0.1.10 |
+| `js` | the framework's JS API; Web Workers run their own binary, typed byte messages | framework | v0.0.11 |
+| `embed` | the `Embedder` contract (+ `MockEmbedder`, `CountTokens`) | contract | v0.4.0 |
+| `bekko` | `bekko-embedding-v1-a8m`, implements `embed.Embedder` | implementation | v0.1.0 (verified against the real model) |
+| `nn` | stateless operations; owns the SIMD findings (`docs/SIMD.md`) | pure library | v0.1.0 |
+| `encoder` | encoder graph (was `transformer`) | implementation | v0.2.0 |
+| `decoder` | Qwen3.5 causal decoder (Gated DeltaNet + gated attention) | implementation | **running**; fixture + spec verified in numpy (1.9e-6) |
+| `weights` | artifact format; `Int8Block32`, `DequantRow` | format | v0.2.0 |
+| `weightsc` | checkpoint → artifact; Qwen3.5 support | tool | **running** |
+| `tokenizer` | BPE + schemes; `QwenScheme`, `EncodeOrdinary` | implementation | **running** |
+| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` | implementation | plan written, blocked on tokenizer + decoder |
+| `opfs` | browser implementation of `files` (OPFS in a Worker) | implementation | docs; plan next |
+| `phoneme` | Spanish grapheme-to-phoneme (v2 TTS) | implementation | docs |
+| `vector`, `vectordb` | vector math; document store | mixed | `vectordb` v0.2.4 (embed v0.4.0) |
 
 A **contract** repository holds interfaces and value types only. An implementation lives in its
 own repository, so importing a contract never adds a model to a binary (the api-design rule:
@@ -76,34 +83,21 @@ after it.
 
 ## Phases
 
-| Phase | Repository | Plan | Waits for | State |
-|---|---|---|---|---|
-| 1 | `llm` | — | — | published v0.1.0 |
-| 2 | `agentcontext` | `agentcontext/docs/PLAN.md` | `llm` ✔ | running |
-| 3 | `agent` | [`PLAN.md`](PLAN.md) (queue: llm/agentcontext refactor, then tool search) | `agentcontext` v0.1.0 | written |
-| 3b | `agentmemory` | `agentmemory/docs/PLAN.md` | `agent` v0.6.0 | written |
-| 4a | `audio` | — | — | published v0.1.0 |
-| 4b | `stt`, `tts` | each `docs/PLAN.md` | `audio` ✔ | `stt` running, `tts` ready |
-| E1 | `embed` `CountTokens` | — | — | published v0.3.0 |
-| N1 | `nn` | `nn/docs/PLAN.md` | — | running |
-| N2 | `encoder` (rename) | `encoder/docs/PLAN.md` | `nn` v0.1.0 | written |
-| N3 | `bekko` | `bekko/docs/PLAN.md` | `encoder` v0.2.0 | written |
-| N4 | `embed` v0.4.0 (contract only) | `embed/docs/PLAN.md` | `bekko` v0.1.0 | written |
-| — | `retrieval`, `decoder`, `qwen`, `opfs`, `weights`/`weightsc` Q8, `webtyp/js` workers | not written | open decisions below | |
+Published: `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0), `nn`, `encoder`,
+`bekko`, `files`, `kvdb`, `pdf`, `js`, `weights`, `vectordb`, `devflow` (gonew, codejob fixes).
 
-```mermaid
-flowchart TD
-    P1[1 llm ✔] --> P2[2 agentcontext]
-    P2 --> P3[3 agent: refactor + tool search]
-    P3 --> P3b[3b agentmemory]
-    P4a[4a audio ✔] --> P4b[4b stt and tts]
-    N1[N1 nn] --> N2[N2 encoder]
-    N2 --> N3[N3 bekko]
-    N3 --> N4[N4 embed contract only]
-    N4 --> R[retrieval chunking]
-    N1 --> D[decoder]
-    D --> Q[qwen]
-```
+| Next | Repository | Plan | Waits for |
+|---|---|---|---|
+| running | `agent` | `agent/docs/PLAN.md` (queue: refactor + tool search) | — |
+| running | `decoder` | `decoder/docs/PLAN.md` (correctness, float32) | — |
+| running | `weightsc` | `weightsc/docs/PLAN.md` (Qwen3.5, int8-block32) | — |
+| running | `tokenizer` | `tokenizer/docs/PLAN.md` (`QwenScheme`, `EncodeOrdinary`) | — |
+| written | `agentmemory` | `agentmemory/docs/PLAN.md` | `agent` v0.6.0 |
+| written | `qwen` | `qwen/docs/PLAN.md` | `tokenizer` v0.3.0, `decoder` v0.1.0 |
+| to write | `decoder` v0.2.0 | Int8Block32 weights + axpy (SIMD form) | `decoder` v0.1.0 |
+| to write | `opfs` | implements `files` in a Worker | — |
+| to write | `app` | SIMD + non-SIMD worker builds (`nn/docs/SIMD.md`) | — |
+| to write | `retrieval` | chunking | — |
 
 ## Decisions already taken
 
@@ -149,21 +143,32 @@ flowchart TD
 - **D15 — `gonew` takes the module prefix from the first neighbor git repository** and falls
   back to the GitHub owner (devflow v0.4.109). **`codejob` retries** a Jules session when a new
   repository is listed but not ready yet (devflow v0.4.110).
+- **D16 — SIMD is adopted when it gives ≥ 2×; no browser is required to be recent.** Measured
+  3.3× (`nn/docs/SIMD.md`): it needs `-opt=2`, the `simd128` target and non-reduction (axpy)
+  loops. The Worker ships two binaries (SIMD and plain) chosen by a feature test; the page stays
+  `-opt=z`.
+- **D17 — `webtyp/files` is the whole-file contract** (`Reader`, `Writer`, `Appender`,
+  `ErrNotExist`), with a conformance suite and `mem` reference; `kvdb` and `pdf` migrated.
+- **D18 — Tool search calls discovered tools directly** (accepted).
+- **D19 — Every model plan ships its own verification data**: a tiny random model of the same
+  architecture and the reference implementation's outputs (`decoder/testdata`), the tokenizer's
+  own splits and ids (`tokenizer/testdata`), and the chat template's own renderings
+  (`qwen/testdata`). Generators live next to the data. The reference environment is
+  `~/Dev/LMmodels/.venv` (torch CPU + transformers 5.17).
+- **D20 — Qwen3.5 calls tools in XML, not JSON** (`<tool_call><function=…><parameter=…>`), and its
+  template accepts only one system block. The `qwen` adapter merges `RoleSystem` messages
+  (conversation summaries) into it.
 
 ## Open decisions
 
-Each open decision blocks the plans named after it. The questions and recommendations are asked
-in conversation; this list only tracks what is still open.
+1. **Name of the disk implementation of `files`** (server side; `app.FileStore` is one today).
+2. **What to do when `pdf` content is drawn before the first page** (found defect, see below).
+3. **STT/TTS models for v2**, measured when v2 starts.
 
-1. **The file read/write contract**: its name and repository. Blocks `opfs`, `qwen`, and a
-   `pdf` migration.
-2. **SIMD in `nn`**: whether to add a second, vectorized implementation. It blocks the speed
-   stage, not correctness.
-3. **Tool search shape**: the design is to call discovered tools directly. A generic
-   `execute_tool(name, args)` is the alternative the user first described. Blocks dispatching
-   phase 3.
-4. **`decoder` / `qwen` / Q8 `weights` plans**: they need the Gated DeltaNet reference and the
-   Qwen3.5 tokenizer pre-tokenizer spelled out. Written after decisions 1–2.
-5. **Web Worker messaging in `webtyp/js`** (approved: typed `[]byte` messages, transferable).
-   The plan is not written yet.
-6. **STT/TTS models for v2**, measured when v2 starts.
+### Found defects, not fixed yet
+
+- `pdf`: drawing before the first `AddPage` writes page operators before the `%PDF` header. The
+  file is corrupt and no error is raised.
+- `goflare` keeps its own `MemoryStore` (a copy of what `files/mem` now is).
+- `app` has the `files` migration applied locally but is not published (it had unrelated
+  uncommitted changes).

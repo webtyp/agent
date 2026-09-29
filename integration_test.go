@@ -67,6 +67,8 @@ type llamaChatRequest struct {
 	Tools     []llamaToolDef `json:"tools,omitempty"`
 	MaxTokens int            `json:"max_tokens,omitempty"`
 	Stream    bool           `json:"stream"`
+	// Temperature 0 makes the scenarios reproducible: the same prompt gives the same answer.
+	Temperature float64 `json:"temperature"`
 }
 
 type llamaChatResponse struct {
@@ -100,7 +102,7 @@ func (l *llamaServer) Generate(ctx *context.Context, req llm.Request) (llm.Respo
 
 	for _, m := range req.Messages {
 		msg := llamaMessage{
-			Role:    m.Role,
+			Role:    string(m.Role),
 			Content: m.Content,
 		}
 		if m.Role == llm.RoleTool {
@@ -144,10 +146,11 @@ func (l *llamaServer) Generate(ctx *context.Context, req llm.Request) (llm.Respo
 	}
 
 	bodyObj := llamaChatRequest{
-		Messages:  messages,
-		Tools:     tools,
-		MaxTokens: req.MaxOutputTokens,
-		Stream:    false,
+		Messages:    messages,
+		Tools:       tools,
+		MaxTokens:   req.MaxOutputTokens,
+		Stream:      false,
+		Temperature: 0,
 	}
 
 	bodyBytes, _ := json.Marshal(bodyObj)
@@ -177,8 +180,8 @@ func (l *llamaServer) Generate(ctx *context.Context, req llm.Request) (llm.Respo
 	choice := chatResp.Choices[0]
 
 	llmResp := llm.Response{
-		Text:       choice.Message.Content,
-		TokensUsed: chatResp.Usage.PromptTokens + chatResp.Usage.CompletionTokens,
+		Text:  choice.Message.Content,
+		Usage: llm.Usage{InputTokens: chatResp.Usage.PromptTokens, OutputTokens: chatResp.Usage.CompletionTokens},
 	}
 
 	switch choice.FinishReason {
@@ -231,6 +234,22 @@ func (l *llamaServer) CountTokens(text string) int {
 	return len(tokResp.Tokens)
 }
 
+// clinicHours is the tool the model must discover with search_tools and call: the only source
+// of the real opening hours, so an answer with "8" proves the whole tool-search path worked.
+type clinicHours struct{ calls int }
+
+func (c *clinicHours) Name() string { return "clinic_hours" }
+func (c *clinicHours) Description() string {
+	return "Opening hours of the clinic (horario de atención de la clínica) for each day of the week"
+}
+func (c *clinicHours) InputSchema() string {
+	return `{"type":"object","properties":{"day":{"type":"string","description":"day of the week"}}}`
+}
+func (c *clinicHours) Execute(ctx *context.Context, argsJSON string) (string, error) {
+	c.calls++
+	return "Lunes a viernes: 8:00 a 20:00. Sábado: 9:00 a 14:00. Domingo: cerrado.", nil
+}
+
 func llamaServerAvailable() bool {
 	resp, err := http.Get(llamaServerURL + llamaHealthPath)
 	if err != nil {
@@ -240,6 +259,12 @@ func llamaServerAvailable() bool {
 	return resp.StatusCode == 200
 }
 
+// TestIntegration_ClinicHours is the end-to-end acceptance of tool search with a real small model:
+// the answer must come from clinic_hours, which the model can only reach through search_tools.
+// Measured with Qwen3.5-0.8B (llama-server, 2026-09-29): the model calls search_tools, the index
+// finds clinic_hours, and the model then answers from memory instead of calling it (each tool hop
+// succeeds ~50–65% of the time). This test fails until the agent removes a hop for small models;
+// see the open decision "runtime tool pre-retrieval" in docs/AGENT_ECOSYSTEM_MASTER_PLAN.md.
 func TestIntegration_ClinicHours(t *testing.T) {
 	if !llamaServerAvailable() {
 		t.Skip("llama-server not running on :8080")
@@ -254,22 +279,28 @@ func TestIntegration_ClinicHours(t *testing.T) {
 	}
 	mem := NewMemMemory()
 
+	hours := &clinicHours{}
 	client := newLlamaServer()
 
 	cfg := Config{
 		Identity: agentcontext.Identity{
-			Name:         "Recepcionista",
-			Role:         "Recepcionista de Clínica San Miguel",
-			Instructions: "Responde siempre en español, de forma concisa.",
+			Name: "Recepcionista",
+			Role: "Recepcionista de Clínica San Miguel",
+			// A small model answers simple questions from memory unless told not to: without
+			// this sentence Qwen3.5-0.8B called search_tools 0 times in 8, with it 4 in 8
+			// (temperature 0.7) and always at temperature 0.
+			Instructions: "Responde siempre en español, de forma concisa. Nunca inventes datos de la clínica (horarios, precios, citas): consíguelos siempre con una herramienta. Si no tienes la herramienta adecuada, llama primero a search_tools.",
 			Goals:        []string{"Informar horarios", "Gestionar citas"},
 		},
 		LLMs: LLMConfig{
 			Primary: client,
 		},
-		Tokens: client,
-		Budget: agentcontext.Budget{ContextTokens: 4096, OutputTokens: 512},
-		Memory: mem,
-		IDGen:  idGen,
+		Tokens:     client,
+		Budget:     agentcontext.Budget{ContextTokens: 4096, OutputTokens: 512},
+		Memory:     mem,
+		IDGen:      idGen,
+		ToolIndex:  NewMemToolIndex(),
+		LocalTools: []Tool{hours},
 	}
 
 	agent, err := New(cfg)
@@ -283,9 +314,17 @@ func TestIntegration_ClinicHours(t *testing.T) {
 	}
 
 	t.Logf("Answer: %s", answer)
+	if logs, err := mem.GetToolLogs(ctx, sessionID, "", 20); err == nil {
+		for _, l := range logs {
+			t.Logf("tool %s(%s) -> %q %s", l.ToolName, l.InputJSON, l.OutputText, l.ErrText)
+		}
+	}
 
-	if !strings.Contains(strings.ToLower(answer), "8") {
-		t.Errorf("expected answer to contain '8', got: %s", answer)
+	if hours.calls == 0 {
+		t.Errorf("the model never called clinic_hours (it must discover it with search_tools); answer: %s", answer)
+	}
+	if !strings.Contains(answer, "8") {
+		t.Errorf("expected the real opening hour 8 in the answer, got: %s", answer)
 	}
 }
 
@@ -302,40 +341,44 @@ func TestIntegration_SessionIsolation(t *testing.T) {
 	mem := NewMemMemory()
 	client := newLlamaServer()
 
-	agent, _ := New(Config{
-		Identity: agentcontext.Identity{Name: "Bot", Role: "Bot", Instructions: "Be helpful."},
-		LLMs:     LLMConfig{Primary: client},
-		Tokens:   client,
-		Budget:   agentcontext.Budget{ContextTokens: 4096, OutputTokens: 512},
-		Memory:   mem,
-		IDGen:    idGen,
+	agent, err := New(Config{
+		Identity:  agentcontext.Identity{Name: "Bot", Role: "Bot", Instructions: "Be helpful."},
+		LLMs:      LLMConfig{Primary: client},
+		Tokens:    client,
+		Budget:    agentcontext.Budget{ContextTokens: 4096, OutputTokens: 512},
+		Memory:    mem,
+		IDGen:     idGen,
+		ToolIndex: NewMemToolIndex(),
 	})
+	if err != nil {
+		t.Fatalf("New agent failed: %v", err)
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		agent.Run(ctx, "sessionA", "My secret is A")
+		agent.Run(ctx, "sessionA", "Remember my secret code: ALPHA-7431")
 	}()
 
 	go func() {
 		defer wg.Done()
-		agent.Run(ctx, "sessionB", "My secret is B")
+		agent.Run(ctx, "sessionB", "Remember my secret code: BRAVO-2210")
 	}()
 
 	wg.Wait()
 
 	turnsA, _ := mem.GetTurns(ctx, "sessionA", 100)
 	for _, tr := range turnsA {
-		if strings.Contains(tr.Message.Content, "B") {
+		if strings.Contains(tr.Message.Content, "BRAVO-2210") {
 			t.Errorf("Session A contains info from Session B: %s", tr.Message.Content)
 		}
 	}
 
 	turnsB, _ := mem.GetTurns(ctx, "sessionB", 100)
 	for _, tr := range turnsB {
-		if strings.Contains(tr.Message.Content, "A") {
+		if strings.Contains(tr.Message.Content, "ALPHA-7431") {
 			t.Errorf("Session B contains info from Session A: %s", tr.Message.Content)
 		}
 	}

@@ -103,12 +103,7 @@ Cualquier test nuevo que solo consuma la API pública debe ir en `package agent_
 
 ## Known debt (do not extend, do not "fix" ad hoc)
 
-| Debt | Where it goes |
-|---|---|
-| model types (`LLMClient`, `LLMRequest`, …) and `context_window.go` still declared here | `webtyp/llm` and `webtyp/agentcontext`; removed by `docs/PLAN.md` (phase 3 of the ecosystem plan) |
-
-Each of these moves under its own `docs/PLAN.md`, dispatched deliberately. Do not bundle them into
-an unrelated PR, and do not leave one half-done.
+None today. Each piece of debt gets its own `docs/PLAN.md`, dispatched deliberately.
 
 ---
 
