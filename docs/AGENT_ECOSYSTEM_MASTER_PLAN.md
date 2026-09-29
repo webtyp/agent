@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-29 · 14 tags published; agent, decoder, weightsc, tokenizer running in Jules
+> **Status:** IN PROGRESS · 2026-09-29 · agent v0.6.0, decoder v0.1.0, tokenizer v0.3.0, weightsc v0.2.0 published; qwen and agentmemory unblocked
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -26,7 +26,7 @@ to know what depends on what, what is decided, and what is still open.
 
 | Repository | One concern | Kind | State |
 |---|---|---|---|
-| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | **running** (queue: llm/agentcontext refactor + tool search) |
+| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.6.0 (integration test against real Qwen3.5 via llama-server) |
 | `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, types | contract | v0.1.0 |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.1.0 |
 | `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | phase 3b plan written (waits for agent v0.6.0) |
@@ -36,17 +36,17 @@ to know what depends on what, what is decided, and what is still open.
 | `tts` | `Synthesizer`, `StreamSynthesizer` | contract | v0.0.2 |
 | `files` | whole-file read/write contract: `Reader`, `Writer`, `Appender`, `ErrNotExist`, conformance, `mem` | contract | v0.0.2 |
 | `kvdb` | key-value store; its `Store` is now `files.ReadWriter` + `files.Appender` | implementation | v0.1.1 |
-| `pdf` | PDF generation; reads/writes through `files` (`WithFiles`) | implementation | v0.1.10 |
+| `pdf` | PDF generation; reads/writes through `files` (`WithFiles`); first page opens automatically | implementation | v0.1.12 |
 | `js` | the framework's JS API; Web Workers run their own binary, typed byte messages | framework | v0.0.11 |
 | `embed` | the `Embedder` contract (+ `MockEmbedder`, `CountTokens`) | contract | v0.4.0 |
 | `bekko` | `bekko-embedding-v1-a8m`, implements `embed.Embedder` | implementation | v0.1.0 (verified against the real model) |
 | `nn` | stateless operations; owns the SIMD findings (`docs/SIMD.md`) | pure library | v0.1.0 |
 | `encoder` | encoder graph (was `transformer`) | implementation | v0.2.0 |
-| `decoder` | Qwen3.5 causal decoder (Gated DeltaNet + gated attention) | implementation | **running**; fixture + spec verified in numpy (1.9e-6) |
+| `decoder` | Qwen3.5 causal decoder (Gated DeltaNet + gated attention) | implementation | v0.1.0 (float32, matches reference ≤ 1e-4, 0 allocs per Step) |
 | `weights` | artifact format; `Int8Block32`, `DequantRow` | format | v0.2.0 |
-| `weightsc` | checkpoint → artifact; Qwen3.5 support | tool | **running** |
-| `tokenizer` | BPE + schemes; `QwenScheme`, `EncodeOrdinary` | implementation | **running** |
-| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` | implementation | plan written, blocked on tokenizer + decoder |
+| `weightsc` | checkpoint → artifact; Qwen3.5 support, sharded checkpoints | tool | v0.2.0 (real Qwen3.5-0.8B: 851 MB, 320 tensors) |
+| `tokenizer` | BPE + schemes; `QwenScheme`, `EncodeOrdinary` | implementation | v0.3.1 (ids match the model's tokenizer.json) |
+| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` | implementation | plan written, **unblocked** |
 | `opfs` | browser implementation of `files` (OPFS in a Worker) | implementation | docs; plan next |
 | `phoneme` | Spanish grapheme-to-phoneme (v2 TTS) | implementation | docs |
 | `vector`, `vectordb` | vector math; document store | mixed | `vectordb` v0.2.4 (embed v0.4.0) |
@@ -161,14 +161,16 @@ Published: `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0
 
 ## Open decisions
 
-1. **Name of the disk implementation of `files`** (server side; `app.FileStore` is one today).
-2. **What to do when `pdf` content is drawn before the first page** (found defect, see below).
-3. **STT/TTS models for v2**, measured when v2 starts.
+1. **Runtime tool pre-retrieval for small models.** Measured with Qwen3.5-0.8B: the model calls
+   `search_tools`, the index finds the right tool, and the model then answers from memory
+   instead of calling it. Each tool hop succeeds ~50–65% of the time, and tool search needs two.
+   Proposal: before the first step, the agent itself runs `ToolIndex.SearchTools(user message)`
+   and offers the top matches directly (plus `search_tools` for anything else). That removes one
+   hop. `agent/integration_test.go` `TestIntegration_ClinicHours` is the acceptance test.
+2. **STT/TTS models for v2**, measured when v2 starts.
 
 ### Found defects, not fixed yet
 
-- `pdf`: drawing before the first `AddPage` writes page operators before the `%PDF` header. The
-  file is corrupt and no error is raised.
-- `goflare` keeps its own `MemoryStore` (a copy of what `files/mem` now is).
+- none open (the `pdf` first-page defect is fixed in v0.1.11; `goflare`'s unused `Store` was removed).
 - `app` has the `files` migration applied locally but is not published (it had unrelated
   uncommitted changes).
