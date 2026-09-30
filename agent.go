@@ -5,8 +5,14 @@ import (
 	"webtyp.com/fmt"
 )
 
+// DefaultPreselectTools is the default number of tools offered with search_tools on the first step.
+const DefaultPreselectTools = 3
+
 // New creates a new Agent instance.
 func New(cfg Config) (*Agent, error) {
+	if cfg.PreselectTools < 0 {
+		return nil, fmt.Errf(errPreselectNegative)
+	}
 	if cfg.LLMs.Primary == nil {
 		return nil, fmt.Errf(errPrimaryRequired)
 	}
@@ -32,6 +38,9 @@ func New(cfg Config) (*Agent, error) {
 	}
 	if cfg.ToolSearchLimit == 0 {
 		cfg.ToolSearchLimit = 5
+	}
+	if cfg.PreselectTools == 0 {
+		cfg.PreselectTools = DefaultPreselectTools
 	}
 	if cfg.RecentTurns == 0 {
 		cfg.RecentTurns = 20

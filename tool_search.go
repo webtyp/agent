@@ -40,35 +40,7 @@ func (a *Agent) searchTools(ctx *context.Context, sessionID string, call llm.Too
 		return "No tools matched. Try other words."
 	}
 
-	allTools := a.registry.getTools()
-	var newTools []llm.ToolDef
-
-	for _, name := range foundNames {
-		var toolDef llm.ToolDef
-		found := false
-		for _, t := range allTools {
-			if t.Name == name {
-				toolDef = t
-				found = true
-				break
-			}
-		}
-		if !found {
-			continue
-		}
-
-		already := false
-		for _, o := range *offered {
-			if o.Name == toolDef.Name {
-				already = true
-				break
-			}
-		}
-		if !already {
-			*offered = append(*offered, toolDef)
-			newTools = append(newTools, toolDef)
-		}
-	}
+	newTools := addByName(offered, a.registry.getTools(), foundNames)
 
 	if len(newTools) == 0 {
 		return "No tools matched. Try other words."
@@ -79,4 +51,39 @@ func (a *Agent) searchTools(ctx *context.Context, sessionID string, call llm.Too
 		res += fmt.Sprintf("%s: %s\n", t.Name, t.Description)
 	}
 	return res
+}
+
+// preselect is what the first step of Run offers: search_tools plus the tools that match the
+// message, or every tool when there are no more than PreselectTools of them.
+func (a *Agent) preselect(ctx *context.Context, userQuery string) ([]llm.ToolDef, error) {
+	all := a.registry.getTools()
+	offered := []llm.ToolDef{searchToolsDef}
+	if len(all) <= a.cfg.PreselectTools {
+		return append(offered, all...), nil
+	}
+	names, err := a.cfg.ToolIndex.SearchTools(ctx, userQuery, a.cfg.PreselectTools)
+	if err != nil {
+		return nil, fmt.Errf("agent: preselect tools: %w", err)
+	}
+	addByName(&offered, all, names)
+	return offered, nil
+}
+
+// addByName appends to offered the definition in all of each name, in order, skipping names
+// that are unknown or already offered, and returns the ones it added.
+func addByName(offered *[]llm.ToolDef, all []llm.ToolDef, names []string) []llm.ToolDef {
+	var added []llm.ToolDef
+	for _, name := range names {
+		if isOffered(*offered, name) {
+			continue
+		}
+		for _, t := range all {
+			if t.Name == name {
+				*offered = append(*offered, t)
+				added = append(added, t)
+				break
+			}
+		}
+	}
+	return added
 }

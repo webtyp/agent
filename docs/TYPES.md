@@ -52,6 +52,10 @@ type Config struct {
 	IDGen    model.IDGenerator   // required, e.g. webtyp.com/unixid
 	Clock    Clock               // the users' time and timezone (default MachineClock)
 
+	ToolIndex       ToolIndex // required: finds tools for search_tools (NewMemToolIndex for keywords)
+	ToolSearchLimit int       // tools returned per search (default 5)
+	PreselectTools  int       // tools offered with search_tools on the first step, by relevance to the message (default 3)
+
 	RecentTurns     int // turns loaded per reasoning step (default 20)
 	RecentSummaries int // summaries loaded per reasoning step (default 5)
 

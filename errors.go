@@ -13,4 +13,5 @@ const (
 	declinedToolResult   = "The person declined this action; it was not executed."
 	errToolNotOffered    = "tool %s is not available; call search_tools first"
 	maxRetriesReply      = "Maximum tool retries reached. Please try again."
+	errPreselectNegative = "agent: PreselectTools must not be negative"
 )

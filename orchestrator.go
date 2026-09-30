@@ -29,7 +29,10 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (Reply, e
 		return Reply{}, fmt.Errf("failed to append user turn: %w", err)
 	}
 
-	offered := []llm.ToolDef{searchToolsDef}
+	offered, err := a.preselect(ctx, userQuery)
+	if err != nil {
+		return Reply{}, err
+	}
 	return a.loop(ctx, sessionID, userQuery, offered)
 }
 
