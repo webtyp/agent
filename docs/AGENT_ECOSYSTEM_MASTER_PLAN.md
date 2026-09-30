@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-30 · agent v0.7.0 (Clock), agentcontext v0.2.0 (dated user turns), agenteval docs + judge measured; qwen, agentmemory, agenteval plans next
+> **Status:** IN PROGRESS · 2026-09-30 · agent v0.7.0, agentcontext v0.2.0, agentmemory v0.2.0, agenteval v0.1.1 published; qwen running
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -27,10 +27,10 @@ to know what depends on what, what is decided, and what is still open.
 | Repository | One concern | Kind | State |
 |---|---|---|---|
 | `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.7.0 (`Config.Clock`) |
-| `agenteval` | scenarios in Go run N times against a local model; deterministic checks + judge | tool (host only) | docs; judge decider-4b measured (`docs/JUDGE.md`) |
+| `agenteval` | scenarios in Go run N times against a local model; deterministic checks + judge | tool (host only) | v0.1.1 (first real run: 7/10 on clinic hours) |
 | `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, types | contract | v0.1.0 |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.2.0 (user turns carry their local date) |
-| `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | phase 3b plan written (waits for agent v0.6.0) |
+| `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | v0.2.0 (agent v0.7 ports, tests in `tests/`) |
 | `retrieval` | chunking, ingestion, search; owns the semantic-search master plan | implementation | docs; first plan now unblocked (`embed.CountTokens`) |
 | `audio` | `audio.PCM` | contract | v0.1.0 |
 | `stt` | `Transcriber`, `StreamTranscriber` | contract | v0.1.0 |
@@ -93,7 +93,7 @@ Published: `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0
 | running | `decoder` | `decoder/docs/PLAN.md` (correctness, float32) | — |
 | running | `weightsc` | `weightsc/docs/PLAN.md` (Qwen3.5, int8-block32) | — |
 | running | `tokenizer` | `tokenizer/docs/PLAN.md` (`QwenScheme`, `EncodeOrdinary`) | — |
-| written | `agentmemory` | `agentmemory/docs/PLAN.md` | `agent` v0.6.0 |
+| written | `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | v0.2.0 (agent v0.7 ports, tests in `tests/`) |
 | written | `qwen` | `qwen/docs/PLAN.md` | `tokenizer` v0.3.0, `decoder` v0.1.0 |
 | to write | `decoder` v0.2.0 | Int8Block32 weights + axpy (SIMD form) | `decoder` v0.1.0 |
 | to write | `opfs` | implements `files` in a Worker | — |
@@ -169,7 +169,11 @@ Published: `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0
    and offers the top matches directly (plus `search_tools` for anything else). That removes one
    hop. `agent/integration_test.go` `TestIntegration_ClinicHours` is the acceptance test.
 2. **STT/TTS models for v2**, measured when v2 starts.
-3. **4-bit weights may be required by memory, not only by speed (D13).** The first application
+3. **Reflection with a small model.** The critic is the same 0.8B model. Candidates: turn
+   reflection off by default for small models, make the critic a typed yes/no decision (the
+   judge's technique) instead of free text, or never show the critic's text to the answering
+   step. Measured with `agenteval` before choosing.
+4. **4-bit weights may be required by memory, not only by speed (D13).** The first application
    (Jose, in `veltylabs/mjosefa-jose`) runs the model in each clinic staff member's browser. The
    weakest machine has 4 GB of RAM (Windows 10 LTSC on about 70 % of them; Intel NUC on half).
    The int8 artifact is 851 MB, and the model needs about 1.2 GB free in the tab. The first
@@ -178,6 +182,11 @@ Published: `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0
 
 ### Found defects, not fixed yet
 
-- none open (the `pdf` first-page defect is fixed in v0.1.11; `goflare`'s unused `Store` was removed).
+- **The critic's feedback leaks into the answer** (found by `agenteval` v0.1.1, Qwen3.5-0.8B
+  as both model and critic). When the reflection step judges an answer insufficient, the next
+  answer the user gets talks to the critic: "I understand the feedback. The response is
+  incomplete because…", "I will now provide the correct answer…". 2 of the 3 failures in 10
+  attempts of `TestIntegration_ClinicHours` are this; the third reached `MaxIterations`.
+  Needs a design decision before a plan (see open decisions).
 - `app` has the `files` migration applied locally but is not published (it had unrelated
   uncommitted changes).
