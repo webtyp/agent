@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-30 · llm v0.2.0 (Decider), mcp v0.2.38 (readOnlyHint) published; qwen in review round 1; agent v0.8.0 and mjosefa-jose plans written, not dispatched
+> **Status:** IN PROGRESS · 2026-09-30 · agent v0.8.0 (typed critic, confirmation), router v0.3.0 (Describe), mcp v0.2.39, qwen v0.1.0, mjosefa-jose v0.1.0 published; next: tool pre-retrieval, agenteval v0.2.0
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -26,7 +26,7 @@ to know what depends on what, what is decided, and what is still open.
 
 | Repository | One concern | Kind | State |
 |---|---|---|---|
-| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.7.0 (`Config.Clock`) |
+| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.8.0 (critic `llm.Decider`, `Reply.Pending` + `Confirm`/`Decline`, tests in `tests/`) |
 | `agenteval` | scenarios in Go run N times against a local model; deterministic checks + judge | tool (host only) | v0.1.1 (first real run: 7/10 on clinic hours) |
 | `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, `Decider`, types | contract | v0.2.0 (`Decider`) |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.2.0 (user turns carry their local date) |
@@ -38,7 +38,7 @@ to know what depends on what, what is decided, and what is still open.
 | `files` | whole-file read/write contract: `Reader`, `Writer`, `Appender`, `ErrNotExist`, conformance, `mem` | contract | v0.0.2 |
 | `kvdb` | key-value store; its `Store` is now `files.ReadWriter` + `files.Appender` | implementation | v0.1.1 |
 | `pdf` | PDF generation; reads/writes through `files` (`WithFiles`); first page opens automatically | implementation | v0.1.12 |
-| `mcp` | MCP server and client; `tools/list` announces read-only tools (`readOnlyHint`) | implementation | v0.2.38 |
+| `mcp` | MCP server and client; `tools/list` announces read-only tools and each operation's description | implementation | v0.2.39 |
 | `js` | the framework's JS API; Web Workers run their own binary, typed byte messages | framework | v0.0.11 |
 | `embed` | the `Embedder` contract (+ `MockEmbedder`, `CountTokens`) | contract | v0.4.0 |
 | `bekko` | `bekko-embedding-v1-a8m`, implements `embed.Embedder` | implementation | v0.1.0 (verified against the real model) |
@@ -48,7 +48,7 @@ to know what depends on what, what is decided, and what is still open.
 | `weights` | artifact format; `Int8Block32`, `DequantRow` | format | v0.2.0 |
 | `weightsc` | checkpoint → artifact; Qwen3.5 support, sharded checkpoints | tool | v0.2.0 (real Qwen3.5-0.8B: 851 MB, 320 tensors) |
 | `tokenizer` | BPE + schemes; `QwenScheme`, `EncodeOrdinary` | implementation | v0.3.1 (ids match the model's tokenizer.json) |
-| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` (later `Decider`) | implementation | PR #1 in review round 1 (grammar missing, does not compile) |
+| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` (later `Decider`) | implementation | v0.1.0 (prompt ids equal the HF tokenizer on all 6 fixtures; runs once decoder v0.2.0 reads int8) |
 | `opfs` | browser implementation of `files` (OPFS in a Worker) | implementation | docs; plan next |
 | `phoneme` | Spanish grapheme-to-phoneme (v2 TTS) | implementation | docs |
 | `vector`, `vectordb` | vector math; document store | mixed | `vectordb` v0.2.4 (embed v0.4.0) |
@@ -90,13 +90,10 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| review | `qwen` | PR #1, round 1 commented: compile error, grammar (D12) missing, test-only exports | — |
-| written | `agent` v0.8.0 | `agent/docs/PLAN.md`: critic as `llm.Decider` (D21), confirmation (D22), tests in `tests/` | — |
-| written | `mjosefa-jose` | `mjosefa-jose/docs/PLAN.md`: rename, `jose.New`, calendar + injection scenarios, docs | — |
-| to write | `agenteval` v0.2.0 | adopt `agent` v0.8 (`Reply`, a check for `Pending`), `Env.Critic`, `FakeTool.Action` as `model.Action`, its judge as `llm.Decider`, `Env.Config()` | `agent` v0.8.0 |
+| to write | `agent` v0.9.0 | tool pre-retrieval (open decision 1, measured) | — |
+| to write | `decoder` v0.2.0 | int8 weights, so `qwen` can run the real model | — |
+| to write | `agenteval` v0.2.0 | adopt `agent` v0.8 (`Reply`, a check for `Pending`), `Env.Critic`, `FakeTool.Action` as `model.Action`, its judge as `llm.Decider`, `Env.Config()` | — (agenteval v0.1.1 does not build against agent v0.8.0) |
 | to write | `qwen` | implement `llm.Decider` (letter probabilities, as the judge) | `qwen` v0.1.0 |
-| to write | `router` + `mcp` | operations carry a description that `tools/list` publishes | — |
-| to write | `decoder` v0.2.0 | Int8Block32 weights + axpy (SIMD form) | `decoder` v0.1.0 |
 | to write | `opfs` | implements `files` in a Worker | — |
 | to write | `app` | SIMD + non-SIMD worker builds (`nn/docs/SIMD.md`) | — |
 | to write | `retrieval` | chunking | — |
@@ -178,12 +175,17 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
 
 ## Open decisions
 
-1. **Runtime tool pre-retrieval for small models.** Measured with Qwen3.5-0.8B: the model calls
-   `search_tools`, the index finds the right tool, and the model then answers from memory
-   instead of calling it. Each tool hop succeeds ~50–65% of the time, and tool search needs two.
-   Proposal: before the first step, the agent itself runs `ToolIndex.SearchTools(user message)`
-   and offers the top matches directly (plus `search_tools` for anything else). That removes one
-   hop. `agent/integration_test.go` `TestIntegration_ClinicHours` is the acceptance test.
+1. **Runtime tool pre-retrieval for small models.** Measured again on 2026-09-30 with Jose's
+   real identity and Qwen3.5-0.8B (first step only, 10 seeds each): offered only `search_tools`,
+   the model calls a tool 1–2 times in 10 and otherwise greets ("¡Hola! ¿Cómo podemos
+   ayudarte hoy?"). With `business_calendar.list_business_hours` offered **directly**, it calls
+   it 8–9 times in 10. The wording of the identity also matters: the older "llama **primero** a
+   search_tools" prompt reached 7 in 10. Jose's three scenarios scored 0/10, 0/10 and 1/10 on
+   `agent` v0.7.2, mostly for this reason (and the D21 leak, fixed by v0.8.0). Proposal, now
+   backed by data: before the first step the agent runs `ToolIndex.SearchTools(user message)` and
+   offers the top matches directly, plus `search_tools` for anything else. Acceptance: Jose's
+   `evals/calendario_test.go` at 9/10. Written after `agent` v0.8.0 is merged, to avoid
+   conflicting with that PR.
 2. **STT/TTS models for v2**, measured when v2 starts.
 3. **4-bit weights may be required by memory, not only by speed (D13).** The first application
    (Jose, in `veltylabs/mjosefa-jose`) runs the model in each clinic staff member's browser. The
