@@ -47,7 +47,7 @@ func TestRun_ModelSeesTheUsersLocalDateAndTime(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	want := "[2026-09-29 Tuesday 10:00 UTC-03:00]\n¿Hasta qué hora atendemos hoy?"
+	want := "[2026-09-29 Tuesday 10:00]\n¿Hasta qué hora atendemos hoy?"
 	first := model.requests[0]
 	last := first.Messages[len(first.Messages)-1]
 	if last.Role != llm.RoleUser || last.Content != want {
