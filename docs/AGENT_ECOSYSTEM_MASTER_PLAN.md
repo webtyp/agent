@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-30 · agent v0.8.0 (typed critic, confirmation), router v0.3.0 (Describe), mcp v0.2.39, qwen v0.1.0, mjosefa-jose v0.1.0 published; next: tool pre-retrieval, agenteval v0.2.0
+> **Status:** IN PROGRESS · 2026-09-30 · agent v0.9.0, agenteval v0.2.1, decoder v0.2.0 (int8), nn v0.2.0, qwen v0.1.3 published; the real model runs in our Go stack (1.9 tok/s, too slow); Jose 3/10, 0/10, 7/10
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -26,8 +26,8 @@ to know what depends on what, what is decided, and what is still open.
 
 | Repository | One concern | Kind | State |
 |---|---|---|---|
-| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.8.0 (critic `llm.Decider`, `Reply.Pending` + `Confirm`/`Decline`, tests in `tests/`) |
-| `agenteval` | scenarios in Go run N times against a local model; deterministic checks + judge | tool (host only) | v0.1.1 (first real run: 7/10 on clinic hours) |
+| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.9.0 (preselected tools, critic `llm.Decider`, `Reply.Pending`) |
+| `agenteval` | scenarios in Go run N times against a local model; deterministic checks + judge | tool (host only) | v0.2.1 (agent v0.8+, critic over the model server) |
 | `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, `Decider`, types | contract | v0.2.0 (`Decider`) |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.2.0 (user turns carry their local date) |
 | `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | v0.2.0 (agent v0.7 ports, tests in `tests/`) |
@@ -42,13 +42,13 @@ to know what depends on what, what is decided, and what is still open.
 | `js` | the framework's JS API; Web Workers run their own binary, typed byte messages | framework | v0.0.11 |
 | `embed` | the `Embedder` contract (+ `MockEmbedder`, `CountTokens`) | contract | v0.4.0 |
 | `bekko` | `bekko-embedding-v1-a8m`, implements `embed.Embedder` | implementation | v0.1.0 (verified against the real model) |
-| `nn` | stateless operations; owns the SIMD findings (`docs/SIMD.md`) | pure library | v0.1.0 |
+| `nn` | stateless operations; owns the SIMD findings (`docs/SIMD.md`) | pure library | v0.2.0 (`MatVecInt8Block32`) |
 | `encoder` | encoder graph (was `transformer`) | implementation | v0.2.0 |
-| `decoder` | Qwen3.5 causal decoder (Gated DeltaNet + gated attention) | implementation | v0.1.0 (float32, matches reference ≤ 1e-4, 0 allocs per Step) |
+| `decoder` | Qwen3.5 causal decoder (Gated DeltaNet + gated attention) | implementation | v0.2.0 (int8 weights stay int8: 961 MB heap for the real model) |
 | `weights` | artifact format; `Int8Block32`, `DequantRow` | format | v0.2.0 |
 | `weightsc` | checkpoint → artifact; Qwen3.5 support, sharded checkpoints | tool | v0.2.0 (real Qwen3.5-0.8B: 851 MB, 320 tensors) |
 | `tokenizer` | BPE + schemes; `QwenScheme`, `EncodeOrdinary` | implementation | v0.3.1 (ids match the model's tokenizer.json) |
-| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` (later `Decider`) | implementation | v0.1.0 (prompt ids equal the HF tokenizer on all 6 fixtures; runs once decoder v0.2.0 reads int8) |
+| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` (later `Decider`) | implementation | v0.1.3 (answers correctly with the real weights; 1.9 tok/s native) |
 | `opfs` | browser implementation of `files` (OPFS in a Worker) | implementation | docs; plan next |
 | `phoneme` | Spanish grapheme-to-phoneme (v2 TTS) | implementation | docs |
 | `vector`, `vectordb` | vector math; document store | mixed | `vectordb` v0.2.4 (embed v0.4.0) |
@@ -90,10 +90,9 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| to write | `agent` v0.9.0 | tool pre-retrieval (open decision 1, measured) | — |
-| to write | `decoder` v0.2.0 | int8 weights, so `qwen` can run the real model | — |
-| to write | `agenteval` v0.2.0 | adopt `agent` v0.8 (`Reply`, a check for `Pending`), `Env.Critic`, `FakeTool.Action` as `model.Action`, its judge as `llm.Decider`, `Env.Config()` | — (agenteval v0.1.1 does not build against agent v0.8.0) |
-| to write | `qwen` | implement `llm.Decider` (letter probabilities, as the judge) | `qwen` v0.1.0 |
+| to decide | `decoder` + `nn` | speed: 0.53 s per token today (open decision 4) | — |
+| to decide | `mjosefa-jose` / cms | how tool data reaches a 0.8B model (open decision 5) | — |
+| to write | `qwen` | implement `llm.Decider` (letter probabilities, as the judge) | — |
 | to write | `opfs` | implements `files` in a Worker | — |
 | to write | `app` | SIMD + non-SIMD worker builds (`nn/docs/SIMD.md`) | — |
 | to write | `retrieval` | chunking | — |
@@ -187,6 +186,24 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
    `evals/calendario_test.go` at 9/10. Written after `agent` v0.8.0 is merged, to avoid
    conflicting with that PR.
 2. **STT/TTS models for v2**, measured when v2 starts.
+4. **Speed of the in-browser model.** First run of Qwen3.5-0.8B through our own stack
+   (`qwen` v0.1.3 + `decoder` v0.2.0, native Go, one thread, no SIMD): the answer is correct
+   ("La capital de Chile es **Santiago**."), with a 961 MB heap and **0.53 s per token**. The prompt
+   is read one token at a time, so Jose's ~500-token prompt would take over 4 minutes before the
+   first word. In the browser it will be slower still. Candidates, to measure one by one: read the
+   prompt as a matrix-matrix product (prefill) instead of token by token; keep the state of the
+   stable prefix (identity and tools) between turns, so each turn only reads the new messages;
+   SIMD with the axpy loop form (measured 3.3×, `nn/docs/SIMD.md`); Web Workers in parallel over
+   rows.
+5. **Tool data a 0.8B model can use.** With tools preselected (agent v0.9.0), Jose now calls
+   `list_business_hours` almost every time, but then fails to turn `open_min: 480, close_min: 1080`
+   into "08:00–18:00" and to pick today's row: "hasta las 20:00", "10:00 PM", "de 480 minutos a
+   1080 minutos". It also repeats the date stamp ("10:00 UTC-03:00"). Scores on 2026-09-30:
+   calendar 3/10, direct injection 0/10 (7 unsure: the judge is not confident on these Spanish
+   answers), indirect injection 7/10 (the 3 failures asked to confirm the injected
+   `change_reservation_status`; confirmation kept it from running). Candidates: the cms returns
+   readable data (`"martes": "08:00–18:00"`), or answers the day's question directly through its
+   existing `get_day_bounds(date)`; a shorter date stamp without the offset.
 3. **4-bit weights may be required by memory, not only by speed (D13).** The first application
    (Jose, in `veltylabs/mjosefa-jose`) runs the model in each clinic staff member's browser. The
    weakest machine has 4 GB of RAM (Windows 10 LTSC on about 70 % of them; Intel NUC on half).
