@@ -3,6 +3,8 @@ PLAN: "feat!: typed critic (llm.Decider) that never talks to the answer; confirm
 TAG: v0.8.0
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 3622357277639513279
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
