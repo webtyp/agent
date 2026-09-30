@@ -84,17 +84,14 @@ after it.
 
 ## Phases
 
-Published: `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0), `nn`, `encoder`,
+Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenizer`, `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0), `nn`, `encoder`,
 `bekko`, `files`, `kvdb`, `pdf`, `js`, `weights`, `vectordb`, `devflow` (gonew, codejob fixes).
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| running | `agent` | `agent/docs/PLAN.md` (queue: refactor + tool search) | — |
-| running | `decoder` | `decoder/docs/PLAN.md` (correctness, float32) | — |
-| running | `weightsc` | `weightsc/docs/PLAN.md` (Qwen3.5, int8-block32) | — |
-| running | `tokenizer` | `tokenizer/docs/PLAN.md` (`QwenScheme`, `EncodeOrdinary`) | — |
-| written | `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | v0.2.0 (agent v0.7 ports, tests in `tests/`) |
-| written | `qwen` | `qwen/docs/PLAN.md` | `tokenizer` v0.3.0, `decoder` v0.1.0 |
+| running | `qwen` | `qwen/docs/PLAN.md` (template, tool calls, grammar, injection test) | — |
+| to write | `mjosefa-jose` | rename, `jose.New`, first scenarios (calendar, injection) | `agenteval` v0.1.1 |
+| to decide | `agent` | reflection with a small model; confirmation of modifying tools | open decisions |
 | to write | `decoder` v0.2.0 | Int8Block32 weights + axpy (SIMD form) | `decoder` v0.1.0 |
 | to write | `opfs` | implements `files` in a Worker | — |
 | to write | `app` | SIMD + non-SIMD worker builds (`nn/docs/SIMD.md`) | — |
