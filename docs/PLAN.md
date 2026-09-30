@@ -3,8 +3,9 @@ PLAN: "feat: preselect tools — the first step already offers the tools that ma
 TAG: v0.9.0
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 1588987719611559568
+PR: https://github.com/webtyp/agent/pull/15
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
