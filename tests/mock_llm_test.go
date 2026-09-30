@@ -1,4 +1,4 @@
-package agent
+package tests
 
 import (
 	"webtyp.com/context"

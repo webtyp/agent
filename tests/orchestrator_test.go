@@ -1,12 +1,14 @@
-package agent
+package tests
 
 import (
 	"testing"
 
+	"webtyp.com/agent"
 	"webtyp.com/agentcontext"
 	"webtyp.com/context"
 	"webtyp.com/fmt"
 	"webtyp.com/llm"
+	"webtyp.com/model"
 )
 
 type mockLLMClient struct {
@@ -28,41 +30,42 @@ type dummyTool struct {
 func (d dummyTool) Name() string        { return d.name }
 func (d dummyTool) Description() string { return d.desc }
 func (d dummyTool) InputSchema() string { return `{"type":"object"}` }
+func (d dummyTool) Action() model.Action { return model.Read }
 func (d dummyTool) Execute(ctx *context.Context, args string) (string, error) {
 	return "tool result for " + d.name, nil
 }
 
 func TestNew_RequiresToolIndex(t *testing.T) {
 	mockLLM := &mockLLMClient{}
-	cfg := Config{
-		LLMs:   LLMConfig{Primary: mockLLM},
+	cfg := agent.Config{
+		LLMs:   agent.LLMConfig{Primary: mockLLM},
 		Tokens: quarterCounter{},
 		Budget: agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory: testMemory,
 		IDGen:  testIDGen,
 	}
 
-	_, err := New(cfg)
-	if err == nil || err.Error() != errToolIndexRequired {
-		t.Errorf("expected %q, got %v", errToolIndexRequired, err)
+	_, err := agent.New(cfg)
+	if err == nil || !fmt.Contains(err.Error(), "ToolIndex is required") {
+		t.Errorf("expected ToolIndex error, got %v", err)
 	}
 }
 
 func TestNew_ReservesSearchToolsName(t *testing.T) {
 	mockLLM := &mockLLMClient{}
-	cfg := Config{
-		LLMs:       LLMConfig{Primary: mockLLM},
+	cfg := agent.Config{
+		LLMs:       agent.LLMConfig{Primary: mockLLM},
 		Tokens:     quarterCounter{},
 		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
-		ToolIndex:  NewMemToolIndex(),
-		LocalTools: []Tool{dummyTool{name: searchToolsName, desc: "reserved"}},
+		ToolIndex:  agent.NewMemToolIndex(),
+		LocalTools: []agent.Tool{dummyTool{name: "search_tools", desc: "reserved"}},
 	}
 
-	_, err := New(cfg)
-	if err == nil || err.Error() != errSearchToolsName {
-		t.Errorf("expected %q, got %v", errSearchToolsName, err)
+	_, err := agent.New(cfg)
+	if err == nil || !fmt.Contains(err.Error(), "reserved for tool search") {
+		t.Errorf("expected search_tools error, got %v", err)
 	}
 }
 
@@ -74,9 +77,6 @@ func TestRun_OffersOnlySearchToolsFirst(t *testing.T) {
 	var firstReq llm.Request
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
 			if len(firstReq.Tools) == 0 {
 				firstReq = req
 			}
@@ -84,28 +84,28 @@ func TestRun_OffersOnlySearchToolsFirst(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:   agentcontext.Identity{Name: "Bot"},
-		LLMs:       LLMConfig{Primary: mockLLM},
+		LLMs:       agent.LLMConfig{Primary: mockLLM},
 		Tokens:     quarterCounter{},
 		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
-		ToolIndex:  NewMemToolIndex(),
-		LocalTools: []Tool{dummyTool{name: "clinic_hours", desc: "opening hours"}},
+		ToolIndex:  agent.NewMemToolIndex(),
+		LocalTools: []agent.Tool{dummyTool{name: "clinic_hours", desc: "opening hours"}},
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	_, err = agent.Run(ctx, sessionID, "Hi")
+	_, err = a.Run(ctx, sessionID, "Hi")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
-	if len(firstReq.Tools) != 1 || firstReq.Tools[0].Name != searchToolsName {
+	if len(firstReq.Tools) != 1 || firstReq.Tools[0].Name != "search_tools" {
 		t.Errorf("expected first request tools to be only [search_tools], got %v", firstReq.Tools)
 	}
 }
@@ -117,7 +117,6 @@ func TestRun_DiscoveredToolBecomesCallable(t *testing.T) {
 
 	step := 0
 	var req2Tools []llm.ToolDef
-	toolExecuted := false
 
 	tool := dummyTool{
 		name: "clinic_hours",
@@ -126,16 +125,12 @@ func TestRun_DiscoveredToolBecomesCallable(t *testing.T) {
 
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
-
 			step++
 			if step == 1 {
 				return llm.Response{
 					StopReason: llm.StopToolUse,
 					ToolCalls: []llm.ToolCall{
-						{ID: "c1", Name: searchToolsName, Input: `{"query":"clinic hours"}`},
+						{ID: "c1", Name: "search_tools", Input: `{"query":"clinic hours"}`},
 					},
 				}, nil
 			}
@@ -153,23 +148,23 @@ func TestRun_DiscoveredToolBecomesCallable(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:   agentcontext.Identity{Name: "Bot"},
-		LLMs:       LLMConfig{Primary: mockLLM},
+		LLMs:       agent.LLMConfig{Primary: mockLLM},
 		Tokens:     quarterCounter{},
 		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
-		ToolIndex:  NewMemToolIndex(),
-		LocalTools: []Tool{tool},
+		ToolIndex:  agent.NewMemToolIndex(),
+		LocalTools: []agent.Tool{tool},
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	ans, err := agent.Run(ctx, sessionID, "When do you open?")
+	reply, err := a.Run(ctx, sessionID, "When do you open?")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -185,11 +180,9 @@ func TestRun_DiscoveredToolBecomesCallable(t *testing.T) {
 		t.Errorf("expected clinic_hours in step 2 tools, got %v", req2Tools)
 	}
 
-	if ans != "Hours are 8 to 20" {
-		t.Errorf("unexpected answer: %s", ans)
+	if reply.Text != "Hours are 8 to 20" {
+		t.Errorf("unexpected answer: %s", reply.Text)
 	}
-
-	_ = toolExecuted
 }
 
 func TestRun_UndiscoveredToolIsRefused(t *testing.T) {
@@ -202,10 +195,6 @@ func TestRun_UndiscoveredToolIsRefused(t *testing.T) {
 
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
-
 			step++
 			if step == 1 {
 				return llm.Response{
@@ -226,23 +215,23 @@ func TestRun_UndiscoveredToolIsRefused(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:   agentcontext.Identity{Name: "Bot"},
-		LLMs:       LLMConfig{Primary: mockLLM},
+		LLMs:       agent.LLMConfig{Primary: mockLLM},
 		Tokens:     quarterCounter{},
 		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
-		ToolIndex:  NewMemToolIndex(),
-		LocalTools: []Tool{dummyTool{name: "clinic_hours", desc: "opening hours"}},
+		ToolIndex:  agent.NewMemToolIndex(),
+		LocalTools: []agent.Tool{dummyTool{name: "clinic_hours", desc: "opening hours"}},
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	_, err = agent.Run(ctx, sessionID, "Hi")
+	_, err = a.Run(ctx, sessionID, "Hi")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -260,13 +249,6 @@ func TestReAct_ToolCallThenAnswer(t *testing.T) {
 
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic that evaluates") {
-				return llm.Response{
-					Text:       "SUFFICIENT",
-					StopReason: llm.StopEndTurn,
-				}, nil
-			}
-
 			hasToolResult := false
 			for _, m := range req.Messages {
 				if m.Role == llm.RoleTool {
@@ -282,7 +264,7 @@ func TestReAct_ToolCallThenAnswer(t *testing.T) {
 					ToolCalls: []llm.ToolCall{
 						{
 							ID:    "call_search",
-							Name:  searchToolsName,
+							Name:  "search_tools",
 							Input: `{"query": "calculator"}`,
 						},
 					},
@@ -318,115 +300,31 @@ func TestReAct_ToolCallThenAnswer(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity: agentcontext.Identity{Name: "Bot"},
-		LLMs: LLMConfig{
+		LLMs: agent.LLMConfig{
 			Primary: mockLLM,
 		},
 		Tokens:     quarterCounter{},
 		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
-		ToolIndex:  NewMemToolIndex(),
+		ToolIndex:  agent.NewMemToolIndex(),
 		MCPServers: []string{testServer.URL},
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	answer, err := agent.Run(ctx, sessionID, "What is 1+2?")
+	reply, err := a.Run(ctx, sessionID, "What is 1+2?")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
-	if answer != "The answer is 3." {
-		t.Errorf("expected answer 'The answer is 3.', got '%s'", answer)
-	}
-}
-
-func TestReAct_ReflectionApproved(t *testing.T) {
-	sessionID := t.Name()
-	ctx := context.Background()
-	testMemory.EnsureSession(ctx, sessionID)
-
-	mockLLM := &mockLLMClient{
-		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic that evaluates") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
-			return llm.Response{Text: "Answer", StopReason: llm.StopEndTurn}, nil
-		},
-	}
-
-	cfg := Config{
-		Identity:  agentcontext.Identity{Name: "Bot"},
-		LLMs:      LLMConfig{Primary: mockLLM},
-		Tokens:    quarterCounter{},
-		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
-		Memory:    testMemory,
-		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
-	}
-
-	agent, _ := New(cfg)
-	ans, err := agent.Run(ctx, sessionID, "Hi")
-	if err != nil {
-		t.Fatalf("Run failed: %v", err)
-	}
-	if ans != "Answer" {
-		t.Errorf("expected Answer, got %s", ans)
-	}
-}
-
-func TestReAct_ReflectionRetry(t *testing.T) {
-	sessionID := t.Name()
-	ctx := context.Background()
-	testMemory.EnsureSession(ctx, sessionID)
-
-	attempts := 0
-	mockLLM := &mockLLMClient{
-		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic that evaluates") {
-				attempts++
-				if attempts == 1 {
-					return llm.Response{Text: "INSUFFICIENT. Missing detail.", StopReason: llm.StopEndTurn}, nil
-				}
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
-
-			hasFeedback := false
-			for _, m := range req.Messages {
-				if fmt.Contains(m.Content, "Reflection feedback") {
-					hasFeedback = true
-					break
-				}
-			}
-			if hasFeedback {
-				return llm.Response{Text: "Improved Answer", StopReason: llm.StopEndTurn}, nil
-			}
-			return llm.Response{Text: "Initial Answer", StopReason: llm.StopEndTurn}, nil
-		},
-	}
-
-	cfg := Config{
-		Identity:  agentcontext.Identity{Name: "Bot"},
-		LLMs:      LLMConfig{Primary: mockLLM},
-		Tokens:    quarterCounter{},
-		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
-		Memory:    testMemory,
-		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
-	}
-
-	agent, _ := New(cfg)
-	ans, err := agent.Run(ctx, sessionID, "Hi")
-	if err != nil {
-		t.Fatalf("Run failed: %v", err)
-	}
-	if ans != "Improved Answer" {
-		t.Errorf("expected Improved Answer, got %s", ans)
+	if reply.Text != "The answer is 3." {
+		t.Errorf("expected answer 'The answer is 3.', got '%s'", reply.Text)
 	}
 }
 
@@ -437,10 +335,6 @@ func TestReAct_ToolErrorSelfCorrect(t *testing.T) {
 
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
-
 			hasError := false
 			for _, m := range req.Messages {
 				if m.Role == llm.RoleTool && fmt.Contains(m.Content, "Error") {
@@ -460,23 +354,24 @@ func TestReAct_ToolErrorSelfCorrect(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
-		Identity:  agentcontext.Identity{Name: "Bot"},
-		LLMs:      LLMConfig{Primary: mockLLM},
-		Tokens:    quarterCounter{},
-		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
-		Memory:    testMemory,
-		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
+	cfg := agent.Config{
+		Identity:   agentcontext.Identity{Name: "Bot"},
+		LLMs:       agent.LLMConfig{Primary: mockLLM},
+		Tokens:     quarterCounter{},
+		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
+		Memory:     testMemory,
+		IDGen:      testIDGen,
+		ToolIndex:  agent.NewMemToolIndex(),
+		LocalTools: []agent.Tool{dummyTool{name: "unknown_tool", desc: "unknown"}},
 	}
 
-	agent, _ := New(cfg)
-	ans, err := agent.Run(ctx, sessionID, "Hi")
+	a, _ := agent.New(cfg)
+	reply, err := a.Run(ctx, sessionID, "Hi")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
-	if ans != "Corrected Answer" {
-		t.Errorf("expected Corrected Answer, got %s", ans)
+	if reply.Text != "Corrected Answer" {
+		t.Errorf("expected Corrected Answer, got %s", reply.Text)
 	}
 }
 
@@ -490,25 +385,25 @@ func TestReAct_MaxIterationsGuard(t *testing.T) {
 			return llm.Response{
 				Text:       "Looping",
 				StopReason: llm.StopToolUse,
-				ToolCalls:  []llm.ToolCall{{Name: searchToolsName, Input: `{"query": "calculator"}`}},
+				ToolCalls:  []llm.ToolCall{{Name: "search_tools", Input: `{"query": "calculator"}`}},
 			}, nil
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:      agentcontext.Identity{Name: "Bot"},
-		LLMs:          LLMConfig{Primary: mockLLM},
+		LLMs:          agent.LLMConfig{Primary: mockLLM},
 		Tokens:        quarterCounter{},
 		Budget:        agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:        testMemory,
 		IDGen:         testIDGen,
-		ToolIndex:     NewMemToolIndex(),
+		ToolIndex:     agent.NewMemToolIndex(),
 		MCPServers:    []string{testServer.URL},
 		MaxIterations: 3,
 	}
 
-	agent, _ := New(cfg)
-	_, err := agent.Run(ctx, sessionID, "Hi")
+	a, _ := agent.New(cfg)
+	_, err := a.Run(ctx, sessionID, "Hi")
 	if err == nil {
 		t.Fatalf("expected error due to max iterations, got nil")
 	}
@@ -525,9 +420,6 @@ func TestOrchestrator_RealMCP(t *testing.T) {
 	step := 0
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic that evaluates") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
 			if len(req.Tools) == 0 {
 				t.Error("expected tools to be offered, got none")
 				return llm.Response{Text: "no tools", StopReason: llm.StopEndTurn}, nil
@@ -536,7 +428,7 @@ func TestOrchestrator_RealMCP(t *testing.T) {
 			if step == 1 {
 				return llm.Response{
 					StopReason: llm.StopToolUse,
-					ToolCalls:  []llm.ToolCall{{ID: "s1", Name: searchToolsName, Input: `{"query":"calculator"}`}},
+					ToolCalls:  []llm.ToolCall{{ID: "s1", Name: "search_tools", Input: `{"query":"calculator"}`}},
 				}, nil
 			}
 			if step == 2 {
@@ -549,27 +441,27 @@ func TestOrchestrator_RealMCP(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:   agentcontext.Identity{Name: "Bot"},
-		LLMs:       LLMConfig{Primary: mockLLM},
+		LLMs:       agent.LLMConfig{Primary: mockLLM},
 		Tokens:     quarterCounter{},
 		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
-		ToolIndex:  NewMemToolIndex(),
+		ToolIndex:  agent.NewMemToolIndex(),
 		MCPServers: []string{testServer.URL},
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
-	ans, err := agent.Run(ctx, sessionID, "compute")
+	reply, err := a.Run(ctx, sessionID, "compute")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
-	if ans != "Result via MCP" {
-		t.Errorf("unexpected answer: %s", ans)
+	if reply.Text != "Result via MCP" {
+		t.Errorf("unexpected answer: %s", reply.Text)
 	}
 }
 
@@ -581,30 +473,27 @@ func TestRun_SendsOutputLimitNotContextSize(t *testing.T) {
 	var recReq llm.Request
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
 			recReq = req
 			return llm.Response{Text: "OK", StopReason: llm.StopEndTurn}, nil
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:  agentcontext.Identity{Name: "Bot"},
-		LLMs:      LLMConfig{Primary: mockLLM},
+		LLMs:      agent.LLMConfig{Primary: mockLLM},
 		Tokens:    quarterCounter{},
 		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 256},
 		Memory:    testMemory,
 		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
+		ToolIndex: agent.NewMemToolIndex(),
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	_, err = agent.Run(ctx, sessionID, "Hi")
+	_, err = a.Run(ctx, sessionID, "Hi")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -617,7 +506,7 @@ func TestRun_SendsOutputLimitNotContextSize(t *testing.T) {
 func TestRun_CompactsAndSummarizesOldestTurns(t *testing.T) {
 	sessionID := t.Name()
 	ctx := context.Background()
-	mem := NewMemMemory()
+	mem := agent.NewMemMemory()
 	mem.EnsureSession(ctx, sessionID)
 
 	for i := 1; i <= 30; i++ {
@@ -635,9 +524,6 @@ func TestRun_CompactsAndSummarizesOldestTurns(t *testing.T) {
 
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
 			if fmt.Contains(req.System, "summar") || fmt.Contains(req.System, "Summar") {
 				summarizerCalled = true
 				return llm.Response{Text: "Summary of old turns", StopReason: llm.StopEndTurn}, nil
@@ -646,24 +532,24 @@ func TestRun_CompactsAndSummarizesOldestTurns(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:        agentcontext.Identity{Name: "Bot"},
-		LLMs:            LLMConfig{Primary: mockLLM, Summarizer: mockLLM},
+		LLMs:            agent.LLMConfig{Primary: mockLLM, Summarizer: mockLLM},
 		Tokens:          quarterCounter{},
 		Budget:          agentcontext.Budget{ContextTokens: 2000, OutputTokens: 256},
 		RecentTurns:     50,
 		RecentSummaries: 5,
 		Memory:          mem,
 		IDGen:           testIDGen,
-		ToolIndex:       NewMemToolIndex(),
+		ToolIndex:       agent.NewMemToolIndex(),
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	_, err = agent.Run(ctx, sessionID, "New query")
+	_, err = a.Run(ctx, sessionID, "New query")
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -707,62 +593,59 @@ func TestRun_StopMaxTokensReturnsError(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:  agentcontext.Identity{Name: "Bot"},
-		LLMs:      LLMConfig{Primary: mockLLM},
+		LLMs:      agent.LLMConfig{Primary: mockLLM},
 		Tokens:    quarterCounter{},
 		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:    testMemory,
 		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
+		ToolIndex: agent.NewMemToolIndex(),
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	_, err = agent.Run(ctx, sessionID, "Hi")
+	_, err = a.Run(ctx, sessionID, "Hi")
 	if err == nil {
 		t.Fatalf("expected error due to output truncation, got nil")
 	}
 
-	if err.Error() != errOutputTruncated {
-		t.Errorf("expected error %q, got %q", err.Error(), err.Error())
+	if !fmt.Contains(err.Error(), "Budget.OutputTokens") {
+		t.Errorf("expected output truncated error, got %v", err)
 	}
 }
 
 func TestRun_TurnsCarryTokenCounts(t *testing.T) {
 	sessionID := t.Name()
 	ctx := context.Background()
-	mem := NewMemMemory()
+	mem := agent.NewMemMemory()
 	mem.EnsureSession(ctx, sessionID)
 
 	mockLLM := &mockLLMClient{
 		generateFunc: func(ctx *context.Context, req llm.Request) (llm.Response, error) {
-			if fmt.Contains(req.System, "critic") {
-				return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-			}
 			return llm.Response{Text: "12345678", StopReason: llm.StopEndTurn}, nil // 8 chars -> 2 tokens
 		},
 	}
 
-	cfg := Config{
+	cfg := agent.Config{
 		Identity:  agentcontext.Identity{Name: "Bot"},
-		LLMs:      LLMConfig{Primary: mockLLM},
+		LLMs:      agent.LLMConfig{Primary: mockLLM},
 		Tokens:    quarterCounter{},
 		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:    mem,
 		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
+		ToolIndex: agent.NewMemToolIndex(),
 	}
 
-	agent, err := New(cfg)
+	a, err := agent.New(cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	_, err = agent.Run(ctx, sessionID, "1234") // 4 chars -> 1 token
+	_, err = a.Run(ctx, sessionID, "1234") // 4 chars -> 1 token
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -787,29 +670,29 @@ func TestRun_TurnsCarryTokenCounts(t *testing.T) {
 func TestNew_RequiresTokensAndBudget(t *testing.T) {
 	mockLLM := &mockLLMClient{}
 
-	cfgNoTokens := Config{
-		LLMs:      LLMConfig{Primary: mockLLM},
+	cfgNoTokens := agent.Config{
+		LLMs:      agent.LLMConfig{Primary: mockLLM},
 		Memory:    testMemory,
 		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
+		ToolIndex: agent.NewMemToolIndex(),
 		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 	}
 
-	_, err := New(cfgNoTokens)
-	if err == nil || err.Error() != errTokensRequired {
-		t.Errorf("expected %q, got %v", errTokensRequired, err)
+	_, err := agent.New(cfgNoTokens)
+	if err == nil || !fmt.Contains(err.Error(), "Tokens is required") {
+		t.Errorf("expected Tokens is required, got %v", err)
 	}
 
-	cfgBadBudget := Config{
-		LLMs:      LLMConfig{Primary: mockLLM},
+	cfgBadBudget := agent.Config{
+		LLMs:      agent.LLMConfig{Primary: mockLLM},
 		Tokens:    quarterCounter{},
 		Memory:    testMemory,
 		IDGen:     testIDGen,
-		ToolIndex: NewMemToolIndex(),
+		ToolIndex: agent.NewMemToolIndex(),
 		Budget:    agentcontext.Budget{ContextTokens: 0, OutputTokens: 0},
 	}
 
-	_, err = New(cfgBadBudget)
+	_, err = agent.New(cfgBadBudget)
 	if err == nil || !fmt.Contains(err.Error(), "agent: Budget:") {
 		t.Errorf("expected error containing 'agent: Budget:', got %v", err)
 	}

@@ -5,10 +5,26 @@ import (
 	"webtyp.com/model"
 )
 
+type toolAnnotations struct {
+	readOnlyHint bool
+}
+
+func (a *toolAnnotations) IsNil() bool { return a == nil }
+
+func (a *toolAnnotations) Schema() []model.Field { return nil }
+func (a *toolAnnotations) Pointers() []any       { return nil }
+
+func (a *toolAnnotations) DecodeFields(r model.FieldReader) {
+	if v, ok := r.Bool("readOnlyHint"); ok {
+		a.readOnlyHint = v
+	}
+}
+
 type toolEntry struct {
 	Name        string
 	Description string
 	InputSchema string
+	ReadOnly    bool
 }
 
 func (t *toolEntry) IsNil() bool { return t == nil }
@@ -27,6 +43,12 @@ func (t *toolEntry) DecodeFields(r model.FieldReader) {
 		t.InputSchema = raw
 	} else if v, ok := r.String("inputSchema"); ok {
 		t.InputSchema = v
+	}
+	if raw, ok := r.Raw("annotations"); ok {
+		var ann toolAnnotations
+		if err := json.Decode([]byte(raw), &ann); err == nil {
+			t.ReadOnly = ann.readOnlyHint
+		}
 	}
 }
 

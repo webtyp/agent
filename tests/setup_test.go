@@ -1,4 +1,4 @@
-package agent
+package tests
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"webtyp.com/agent"
 	"webtyp.com/context"
 	"webtyp.com/fmt"
 	webtypjson "webtyp.com/json"
@@ -16,7 +17,7 @@ import (
 	"webtyp.com/unixid"
 )
 
-var testMemory MemoryStore
+var testMemory agent.MemoryStore
 var testIDGen model.IDGenerator
 var testServer *httptest.Server
 
@@ -27,7 +28,9 @@ func (p testToolProvider) Tools() []mcp.Tool {
 		{
 			Name:        "calculator",
 			Description: "Calculates sum",
-			Access:      model.AccessPublic,
+			Resource:    "calculator",
+			Action:      model.Read,
+			Access:      model.AccessGuarded,
 			Execute: func(ctx *context.Context, req mcp.Request) (*mcp.Result, error) {
 				var args struct {
 					A float64 `json:"a"`
@@ -48,7 +51,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	testIDGen = idGen
-	testMemory = NewMemMemory()
+	testMemory = agent.NewMemMemory()
 
 	srv, err := mcp.NewServer(
 		mcp.Config{Name: "test", Version: "1.0.0", Authorize: mcp.AllowAll},

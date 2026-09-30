@@ -8,6 +8,7 @@ import (
 	"webtyp.com/json"
 	"webtyp.com/llm"
 	"webtyp.com/mcp"
+	"webtyp.com/model"
 )
 
 // mcpCaller abstracts the JSON-RPC transport for MCP protocol calls.
@@ -17,8 +18,9 @@ type mcpCaller interface {
 }
 
 type mcpToolEntry struct {
-	Client mcpCaller
-	Def    llm.ToolDef
+	Client   mcpCaller
+	Def      llm.ToolDef
+	ReadOnly bool
 }
 
 type mcpRegistry struct {
@@ -38,10 +40,6 @@ func (r *mcpRegistry) addLocalTool(t Tool) {
 	r.localTools = append(r.localTools, t)
 }
 
-// removeToolByName drops the entry named name, if present. The registry used to be a
-// map[string]Tool, where a second registration under the same name silently replaced the
-// first (last write wins); a plain append-only slice lost that property (two entries with
-// the same name, getTools() sends both to the LLM). This restores it without a map.
 func removeToolByName(tools []Tool, name string) []Tool {
 	for i, t := range tools {
 		if t.Name() == name {
@@ -51,7 +49,6 @@ func removeToolByName(tools []Tool, name string) []Tool {
 	return tools
 }
 
-// removeMCPToolByName is removeToolByName's counterpart for mcpToolEntry — same reasoning.
 func removeMCPToolByName(tools []mcpToolEntry, name string) []mcpToolEntry {
 	for i, t := range tools {
 		if t.Def.Name == name {
@@ -88,9 +85,29 @@ func (r *mcpRegistry) addMCPClient(ctx *context.Context, client mcpCaller) error
 				Description: t.Description,
 				InputSchema: t.InputSchema,
 			},
+			ReadOnly: t.ReadOnly,
 		})
 	}
 	return nil
+}
+
+func (r *mcpRegistry) readOnly(name string) bool {
+	if name == searchToolsName {
+		return true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, t := range r.localTools {
+		if t.Name() == name {
+			return t.Action() == model.Read
+		}
+	}
+	for _, entry := range r.mcpTools {
+		if entry.Def.Name == name {
+			return entry.ReadOnly
+		}
+	}
+	return false
 }
 
 func (r *mcpRegistry) getTools() []llm.ToolDef {

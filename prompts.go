@@ -1,15 +1,13 @@
 package agent
 
-const (
-	reflectorSystem        = "You are a critic that evaluates AI responses."
-	reflectionPromptFormat = `
-Analyze the following user query and the assistant's response.
-User Query: "%s"
-Assistant Response: "%s"
+const CriticMinConfidence = 0.8
 
-Is the response complete and accurate?
-If YES, respond with "SUFFICIENT".
-If NO, respond with "INSUFFICIENT" followed by a short critique.
-`
-	reflectionOutputTokens = 100
+const (
+	criticQuestion  = "Does the assistant's answer state anything that the tool results do not support?"
+	criticRetryNote = "Your previous draft stated things the tool results do not support. Answer the person again using only the tool results; if you do not have the data, call a tool."
 )
+
+var criticOptions = []string{
+	"no, everything it says is supported by the tool results",
+	"yes, it states something the tool results do not support",
+}

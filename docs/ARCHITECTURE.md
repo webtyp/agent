@@ -121,6 +121,24 @@ The model contract (`llm.Client`, `llm.TokenCounter`) is in
 [`webtyp/llm`](https://github.com/webtyp/llm). `SearchKnowledge` takes **text**, never a
 vector. Turning text into a vector is the memory implementation's job.
 
+## Confirmation before tools that modify
+
+When the model decides to call a tool that alters data (any tool whose action is not `model.Read`), the agent pauses execution before calling the tool and returns the pending tool calls in `Reply.Pending`. The calling application presents these calls to the user for explicit confirmation or rejection:
+
+```go
+reply, err := a.Run(ctx, sessionID, "Cancel my appointment")
+if len(reply.Pending) > 0 {
+    // Show reply.Pending to the user and prompt for confirmation
+    reply, err = a.Confirm(ctx, sessionID) // or a.Decline(ctx, sessionID)
+}
+```
+
+If the user typed a new query instead of confirming, calling `Run` automatically declines the pending actions before processing the new query.
+
+Only a tool the model was **offered** in this run can wait for confirmation. A call to a tool it
+was never offered (for example, one named in text an attacker planted in a patient's record) is
+refused like any undiscovered tool, so it never reaches the person as something to confirm.
+
 ## Tools
 
 Three sources are merged at construction:

@@ -93,11 +93,9 @@ HTTP client does not.
   host-only test code, and it must live behind the host build).
 - Publish with `gopush 'message'` — never `git commit`/`git push` directly.
 
-### Test layout — excepción documentada
+### Test layout
 
-Los tests white-box existentes en el paquete raíz (`package agent`) para FSM, registry e internals
-se mantienen en la raíz porque moverlos a `tests/` requeriría exportar internals innecesariamente.
-Cualquier test nuevo que solo consuma la API pública debe ir en `package agent_test` o en `tests/`, nunca en `package agent`.
+All tests live in tests/ (package tests) and use only the exported API.
 
 ---
 

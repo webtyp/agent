@@ -36,11 +36,10 @@ A failing tool does not stop the agent. Its error is stored as the `RoleTool` me
 (`"Error: …"`), so the model can try another tool or other arguments on the next step. Only
 `MaxRetries` consecutive failures end the run.
 
-## Three models, one contract
+## Primary, Critic and Summarizer
 
-`LLMConfig` routes by task. `Primary` reasons and acts, `Reflector` judges the candidate answer,
-and `Summarizer` writes summaries when the conversation is compacted. The last two default to
-`Primary`. All three are `llm.Client`, so a small, fast model can take the cheap jobs.
+`LLMConfig` routes by task. `Primary` reasons and acts, `Critic` (`llm.Decider`) checks the candidate answer,
+and `Summarizer` writes summaries when the conversation is compacted.
 
 ## Identity becomes the stable prefix
 

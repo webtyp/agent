@@ -22,7 +22,7 @@ and run the integration scenarios. See
 
 **Use it in an application.** Build a `Config` with a model (`llm.Client` + `llm.TokenCounter`),
 its `Budget`, a `MemoryStore` (`webtyp/agentmemory`), an ID generator and your tools, then call
-`agent.New(cfg)` and `Run(ctx, sessionID, text)`. Every field is described in
+`agent.New(cfg)` and `Run(ctx, sessionID, text)`, which returns a `Reply`. Every field is described in
 [Types](docs/TYPES.md).
 
 **Change the agent.** Read [AGENTS.md](AGENTS.md) and [Agent patterns](docs/DEFAULT_LLM_SKILL.md)

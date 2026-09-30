@@ -4,6 +4,7 @@ import (
 	"webtyp.com/agentcontext"
 	"webtyp.com/context"
 	"webtyp.com/llm"
+	"webtyp.com/model"
 )
 
 type ConversationStore interface {
@@ -18,10 +19,6 @@ type SummaryStore interface {
 	GetSummaries(ctx *context.Context, sessionID string, limit int) ([]agentcontext.Summary, error) // the `limit` most recent
 }
 
-// KnowledgeStore's SearchKnowledge takes TEXT, never a vector — the caller (agentmemory)
-// owns embedding it. sessionID == "" scopes to global knowledge; a non-empty sessionID must
-// see its own session's knowledge PLUS global — never another session's. See conformance
-// tests TestKnowledge_GlobalVisibleFromAnySession / TestKnowledge_SessionScopedNotVisibleFromOtherSession.
 type KnowledgeStore interface {
 	SaveKnowledge(ctx *context.Context, sessionID, content, source string) error
 	SearchKnowledge(ctx *context.Context, query, sessionID string, limit int) ([]Knowledge, error)
@@ -32,7 +29,6 @@ type ToolLogStore interface {
 	GetToolLogs(ctx *context.Context, sessionID, toolName string, limit int) ([]ToolLog, error)
 }
 
-// MemoryStore is the composed contract. Config.Memory keeps this type.
 type MemoryStore interface {
 	ConversationStore
 	SummaryStore
@@ -40,28 +36,17 @@ type MemoryStore interface {
 	ToolLogStore
 }
 
-// Clock is the current time as the agent's users live it. The model sees every user message
-// with the local date and time it was said (see webtyp/agentcontext), so an agent that answers
-// "today" needs the right clock and timezone. Tests inject a fixed one.
 type Clock interface {
-	// Now is the current time in unix nanoseconds, UTC.
 	Now() int64
-	// UTCOffsetMinutes is the users' timezone offset from UTC, e.g. -180 for UTC-3.
 	UTCOffsetMinutes() int
 }
 
-// ToolIndex finds, among every tool the agent can run, the ones that match what the model
-// is looking for. webtyp/agentmemory implements it by meaning; NewMemToolIndex by keywords.
 type ToolIndex interface {
-	// IndexTools replaces the indexed set with tools.
 	IndexTools(ctx *context.Context, tools []llm.ToolDef) error
-	// SearchTools returns the names of at most limit tools, most relevant first; empty when none match.
 	SearchTools(ctx *context.Context, query string, limit int) ([]string, error)
 }
 
 type MCPServer interface {
-	// URL is the server's base URL. webtyp.com/mcp.NewClient appends "/mcp" to it — pass
-	// the host root (e.g. "https://host"), not a path already ending in "/mcp".
 	URL() string
 }
 
@@ -69,5 +54,6 @@ type Tool interface {
 	Name() string
 	Description() string
 	InputSchema() string
+	Action() model.Action
 	Execute(ctx *context.Context, argsJSON string) (string, error)
 }
