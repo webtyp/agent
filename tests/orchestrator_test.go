@@ -92,7 +92,13 @@ func TestRun_OffersOnlySearchToolsFirst(t *testing.T) {
 		Memory:     testMemory,
 		IDGen:      testIDGen,
 		ToolIndex:  agent.NewMemToolIndex(),
-		LocalTools: []agent.Tool{dummyTool{name: "clinic_hours", desc: "opening hours"}},
+		LocalTools: []agent.Tool{
+			dummyTool{name: "clinic_hours", desc: "opening hours"},
+			dummyTool{name: "patient_records", desc: "patient records"},
+			dummyTool{name: "lab_results", desc: "lab test results"},
+			dummyTool{name: "pharmacy_stock", desc: "medicine stock"},
+			dummyTool{name: "billing_invoices", desc: "billing invoices"},
+		},
 	}
 
 	a, err := agent.New(cfg)
@@ -223,7 +229,13 @@ func TestRun_UndiscoveredToolIsRefused(t *testing.T) {
 		Memory:     testMemory,
 		IDGen:      testIDGen,
 		ToolIndex:  agent.NewMemToolIndex(),
-		LocalTools: []agent.Tool{dummyTool{name: "clinic_hours", desc: "opening hours"}},
+		LocalTools: []agent.Tool{
+			dummyTool{name: "clinic_hours", desc: "opening hours"},
+			dummyTool{name: "patient_records", desc: "patient records"},
+			dummyTool{name: "lab_results", desc: "lab test results"},
+			dummyTool{name: "pharmacy_stock", desc: "medicine stock"},
+			dummyTool{name: "billing_invoices", desc: "billing invoices"},
+		},
 	}
 
 	a, err := agent.New(cfg)
@@ -362,7 +374,13 @@ func TestReAct_ToolErrorSelfCorrect(t *testing.T) {
 		Memory:     testMemory,
 		IDGen:      testIDGen,
 		ToolIndex:  agent.NewMemToolIndex(),
-		LocalTools: []agent.Tool{dummyTool{name: "unknown_tool", desc: "unknown"}},
+		LocalTools: []agent.Tool{
+			dummyTool{name: "unknown_tool", desc: "unknown"},
+			dummyTool{name: "t1", desc: "one"},
+			dummyTool{name: "t2", desc: "two"},
+			dummyTool{name: "t3", desc: "three"},
+			dummyTool{name: "t4", desc: "four"},
+		},
 	}
 
 	a, _ := agent.New(cfg)

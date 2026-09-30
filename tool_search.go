@@ -80,3 +80,49 @@ func (a *Agent) searchTools(ctx *context.Context, sessionID string, call llm.Too
 	}
 	return res
 }
+
+func (a *Agent) preselect(ctx *context.Context, userQuery string) ([]llm.ToolDef, error) {
+	all := a.registry.getTools()
+	if len(all) <= a.cfg.PreselectTools {
+		res := make([]llm.ToolDef, 0, len(all)+1)
+		res = append(res, searchToolsDef)
+		res = append(res, all...)
+		return res, nil
+	}
+
+	names, err := a.cfg.ToolIndex.SearchTools(ctx, userQuery, a.cfg.PreselectTools)
+	if err != nil {
+		return nil, fmt.Errf("agent: preselect tools: %w", err)
+	}
+
+	res := make([]llm.ToolDef, 0, len(names)+1)
+	res = append(res, searchToolsDef)
+
+	for _, name := range names {
+		var toolDef llm.ToolDef
+		found := false
+		for _, t := range all {
+			if t.Name == name {
+				toolDef = t
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+
+		already := false
+		for _, o := range res {
+			if o.Name == toolDef.Name {
+				already = true
+				break
+			}
+		}
+		if !already {
+			res = append(res, toolDef)
+		}
+	}
+
+	return res, nil
+}

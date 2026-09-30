@@ -512,7 +512,13 @@ func TestRun_UnofferedModifyingToolIsRefusedNotPending(t *testing.T) {
 		Memory:     mem,
 		IDGen:      testIDGen,
 		ToolIndex:  agent.NewMemToolIndex(),
-		LocalTools: []agent.Tool{cancelTool},
+		LocalTools: []agent.Tool{
+			cancelTool,
+			dummyTool{name: "t1", desc: "one"},
+			dummyTool{name: "t2", desc: "two"},
+			dummyTool{name: "t3", desc: "three"},
+			dummyTool{name: "t4", desc: "four"},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
