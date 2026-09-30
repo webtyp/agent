@@ -19,14 +19,25 @@ name.
 | `agentcontext.Summary` | `webtyp/agentcontext` | model-written text that replaced a range of turns |
 | `agentcontext.Identity` | `webtyp/agentcontext` | who the agent is; becomes the request's `System` |
 | `agentcontext.Budget` | `webtyp/agentcontext` | the model's context and output token limits |
-| `Agent`, `Config`, `LLMConfig`, `Knowledge`, `ToolLog` | `webtyp/agent` (this repo) | below |
+| `Agent`, `Config`, `Reply`, `LLMConfig`, `Tool`, `Knowledge`, `ToolLog` | `webtyp/agent` (this repo) | below |
 
 ## Declared here
 
 ### `Agent`
 
-The value `New(cfg)` returns. Its fields are unexported, and its one method is
-`Run(ctx, sessionID, userQuery) (string, error)`.
+The value `New(cfg)` returns. Its fields are unexported, and its public methods are:
+- `Run(ctx, sessionID, userQuery) (Reply, error)`
+- `Confirm(ctx, sessionID) (Reply, error)`
+- `Decline(ctx, sessionID) (Reply, error)`
+
+### `Reply`
+
+```go
+type Reply struct {
+	Text    string         // answer to show the person
+	Pending []llm.ToolCall // non-read-only tool calls awaiting confirmation
+}
+```
 
 ### `Config`
 
@@ -34,6 +45,7 @@ The value `New(cfg)` returns. Its fields are unexported, and its one method is
 type Config struct {
 	Identity agentcontext.Identity
 	LLMs     LLMConfig           // required: LLMs.Primary != nil
+	Critic   llm.Decider         // optional: checks each answer before it reaches the person; nil = no check
 	Tokens   llm.TokenCounter    // required: the tokenizer of LLMs.Primary
 	Budget   agentcontext.Budget // required: the token limits of LLMs.Primary
 	Memory   MemoryStore         // required
@@ -75,9 +87,20 @@ type Clock interface {
 ```go
 type LLMConfig struct {
 	Primary    llm.Client // reasoning and acting (required)
-	Reflector  llm.Client // judges the candidate answer (defaults to Primary)
 	Summarizer llm.Client // writes summaries when the conversation is compacted (defaults to Primary)
 }
+
+### `Tool`
+
+```go
+type Tool interface {
+	Name() string
+	Description() string
+	InputSchema() string
+	Action() model.Action
+	Execute(ctx *context.Context, argsJSON string) (string, error)
+}
+```
 ```
 
 ### `Knowledge`

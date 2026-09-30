@@ -9,17 +9,17 @@ stateDiagram-v2
     [*] --> Idle
     Idle --> Reasoning : Recibe Consulta
 
-    Reasoning --> Acting : tool_use response
+    Reasoning --> Acting : tool_use response (read-only)
     Reasoning --> Reflecting : end_turn response
-    Reasoning --> Responding : MaxIterations superado o StopMaxTokens
+    Reasoning --> Responding : Herramienta de modificacion (Pending) / MaxIterations / StopMaxTokens
 
     Acting --> Reasoning : Observacion lista
     Acting --> Responding : MaxRetries superado
 
-    Reflecting --> Reasoning : INSUFFICIENT - feedback loop
-    Reflecting --> Responding : SUFFICIENT - approved
+    Reflecting --> Reasoning : Critic rechaza - retry loop
+    Reflecting --> Responding : Critic acepta o nil - approved
 
-    Responding --> Idle : Envia respuesta al usuario
+    Responding --> Idle : Envia respuesta (Reply)
 ```
 
 ## State Definitions
@@ -28,23 +28,23 @@ stateDiagram-v2
 |-------|------|-------------|
 | **Idle** | Entry/Exit | Waiting for input. No active work. Session context is not loaded yet. |
 | **Reasoning** | Core loop | The LLM is processing the current context window and deciding the next action. Produces either a `tool_use` or `end_turn` response. |
-| **Acting** | Execution | The orchestrator executes one or more MCP tool calls requested by the LLM. The LLM is NOT called during this state. |
-| **Reflecting** | Quality gate | A lightweight second LLM call (no tools) evaluates the pending answer. Produces `SUFFICIENT` or `INSUFFICIENT`. |
-| **Responding** | Output | The final answer is appended to memory and returned to the caller. |
+| **Acting** | Execution | The orchestrator executes one or more read-only tool calls requested by the LLM. |
+| **Reflecting** | Quality gate | A typed critic (`llm.Decider`) checks if the answer states anything unsupported by tool results. |
+| **Responding** | Output | The final answer (or pending calls) is returned to the caller. |
 
 ## Transition Logic
 
 | From | To | Trigger | Code location |
 |------|----|---------|---------------|
 | `Idle` | `Reasoning` | `Run()` called with user input | `orchestrator.go` |
-| `Reasoning` | `Acting` | `resp.StopReason == llm.StopToolUse` | `orchestrator.go` |
+| `Reasoning` | `Acting` | `resp.StopReason == llm.StopToolUse` (all tools read-only) | `orchestrator.go` |
 | `Reasoning` | `Reflecting` | `resp.StopReason == llm.StopEndTurn` | `orchestrator.go` |
-| `Reasoning` | `Responding` | `iterations >= MaxIterations` **(guardrail)**, or `resp.StopReason == llm.StopMaxTokens` (returns an error: the answer was cut) | `orchestrator.go` |
+| `Reasoning` | `Responding` | Any tool modifies (pauses for `Confirm`/`Decline`), `iterations >= MaxIterations` **(guardrail)**, or `resp.StopReason == llm.StopMaxTokens` | `orchestrator.go` |
 | `Acting` | `Reasoning` | Tool executed (success or error — both become observations) | `orchestrator.go` |
 | `Acting` | `Responding` | `retries >= MaxRetries` **(guardrail)** | `orchestrator.go` |
-| `Reflecting` | `Reasoning` | Reflection verdict is `INSUFFICIENT` | `orchestrator.go` |
-| `Reflecting` | `Responding` | Reflection verdict is `SUFFICIENT` | `orchestrator.go` |
-| `Responding` | `Idle` | Answer delivered to caller | `orchestrator.go` |
+| `Reflecting` | `Reasoning` | Critic rejects answer (`Choice == 1`, `Confidence >= 0.8`) | `orchestrator.go` |
+| `Reflecting` | `Responding` | Critic accepts answer or `Critic == nil` | `orchestrator.go` |
+| `Responding` | `Idle` | Answer/Reply delivered to caller | `orchestrator.go` |
 
 ## Guardrails
 
@@ -55,6 +55,6 @@ Two safety valves prevent infinite loops:
 
 ## Key Design Decisions
 
-- **Tool errors do NOT stop the loop.** A failed tool call produces an error observation that is injected back into the context. The LLM can then self-correct (try a different tool, different arguments, or acknowledge the failure).
-- **Reflection is cheap.** The `Reflecting` state uses a minimal prompt with no tools, targeting low token usage. It guards against low-quality answers without adding significant latency.
-- **All transitions are validated in code.** The `fsm.transition(to State) error` function (see `fsm.go`) rejects invalid transitions at runtime, preventing the orchestrator from reaching illegal states.
+- **Tool errors do NOT stop the loop.** A failed tool call produces an error observation that is injected back into the context. The LLM can then self-correct.
+- **Confirmation before tools that modify.** Any tool with action other than `model.Read` pauses execution and returns pending calls in `Reply.Pending`.
+- **Typed critic (`llm.Decider`).** The critic evaluates answers via structured probability choices without polluting context memory with rejected drafts.

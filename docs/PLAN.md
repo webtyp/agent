@@ -289,3 +289,8 @@ The ecosystem rule, and the owner's standing request: **all tests live in `tests
 | 4 | `tests/`, `AGENTS.md` | `ls *_test.go` in the root → nothing; `test ! -e integration_test.go` |
 | 5 | docs | every doc names `Critic`, `Reply`, `Pending`; none names `Reflector` |
 | all | — | `gotest` green; `GOOS=js GOARCH=wasm go build ./...` |
+
+## Executor notes
+
+1. **FSM internal test removal (`fsm_test.go`):** The unexported `fsm` struct and its transition methods are internal implementation details of `Agent`. Per Stage 4 requirements, all tests were moved to `tests/` (`package tests`) to test exclusively through the public exported API of `webtyp.com/agent`. FSM transition validation is fully exercised via `Run`, `Confirm`, and `Decline` in `tests/orchestrator_test.go`, `tests/confirm_test.go`, and `tests/critic_test.go`.
+2. **Integration test (`integration_test.go`):** As specified in Stage 4, `integration_test.go` was deleted from this repository (its scenarios live in `webtyp/agenteval`).

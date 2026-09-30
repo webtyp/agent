@@ -1,4 +1,4 @@
-package agent_test
+package tests
 
 import (
 	"testing"
@@ -11,37 +11,28 @@ import (
 	"webtyp.com/unixid"
 )
 
-// fixedClock is Tuesday 2026-09-29 10:00 in Chile (13:00 UTC, UTC-3).
 type fixedClock struct{}
 
 func (fixedClock) Now() int64            { return 1790686800 * 1e9 }
 func (fixedClock) UTCOffsetMinutes() int { return -180 }
 
-type recordingLLM struct{ requests []llm.Request }
+type recordingClockLLM struct{ requests []llm.Request }
 
-// Generate records the reasoning requests and approves every answer when asked as the critic.
-func (r *recordingLLM) Generate(ctx *context.Context, req llm.Request) (llm.Response, error) {
-	if fmt.Contains(req.System, "critic") {
-		return llm.Response{Text: "SUFFICIENT", StopReason: llm.StopEndTurn}, nil
-	}
+func (r *recordingClockLLM) Generate(ctx *context.Context, req llm.Request) (llm.Response, error) {
 	r.requests = append(r.requests, req)
 	return llm.Response{Text: "Hasta las 18:00.", StopReason: llm.StopEndTurn}, nil
 }
-
-type charCounter struct{}
-
-func (charCounter) CountTokens(s string) int { return len(s) / 4 }
 
 func TestRun_ModelSeesTheUsersLocalDateAndTime(t *testing.T) {
 	ids, err := unixid.NewUnixID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := &recordingLLM{}
+	model := &recordingClockLLM{}
 	a, err := agent.New(agent.Config{
 		Identity:  agentcontext.Identity{Name: "Jose"},
 		LLMs:      agent.LLMConfig{Primary: model},
-		Tokens:    charCounter{},
+		Tokens:    quarterCounter{},
 		Budget:    agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:    agent.NewMemMemory(),
 		IDGen:     ids,

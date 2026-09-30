@@ -6,6 +6,16 @@ import (
 	"webtyp.com/model"
 )
 
+// Reply is what the agent has for the person after Run, Confirm or Decline.
+type Reply struct {
+	// Text is the answer to show. While Pending is non-empty it is whatever the model wrote
+	// before its tool calls, possibly empty.
+	Text string
+	// Pending are the tool calls the model wants to make that change data. They have not run.
+	// Show them to the person and call Confirm or Decline. Empty when the answer is final.
+	Pending []llm.ToolCall
+}
+
 // Agent is the entry point for all agent operations.
 // Constructed via New(cfg Config) — the only wiring point for concrete implementations.
 type Agent struct {
@@ -42,6 +52,7 @@ type ToolLog struct {
 type Config struct {
 	Identity agentcontext.Identity
 	LLMs     LLMConfig           // required: LLMs.Primary != nil
+	Critic   llm.Decider         // optional: checks each answer before it reaches the person; nil = no check
 	Tokens   llm.TokenCounter    // required: the tokenizer of LLMs.Primary
 	Budget   agentcontext.Budget // required: the token limits of LLMs.Primary
 	Memory   MemoryStore         // required
@@ -66,6 +77,5 @@ type Config struct {
 // LLMConfig holds the LLM clients for different tasks.
 type LLMConfig struct {
 	Primary    llm.Client // required
-	Reflector  llm.Client // optional, defaults to Primary
 	Summarizer llm.Client // optional, defaults to Primary
 }
