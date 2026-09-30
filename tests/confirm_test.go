@@ -57,6 +57,10 @@ func TestConfirm_ModifyingToolPausesAndConfirms(t *testing.T) {
 		script: []llm.Response{
 			{
 				StopReason: llm.StopToolUse,
+				ToolCalls:  []llm.ToolCall{{ID: "s1", Name: "search_tools", Input: `{"query":"track tool"}`}},
+			},
+			{
+				StopReason: llm.StopToolUse,
 				Text:       "I will book it.",
 				ToolCalls:  []llm.ToolCall{{ID: "c1", Name: "book_appt", Input: "{}"}},
 			},
@@ -131,6 +135,10 @@ func TestDecline_ModifyingToolDeclines(t *testing.T) {
 		script: []llm.Response{
 			{
 				StopReason: llm.StopToolUse,
+				ToolCalls:  []llm.ToolCall{{ID: "s1", Name: "search_tools", Input: `{"query":"track tool"}`}},
+			},
+			{
+				StopReason: llm.StopToolUse,
 				Text:       "I will cancel it.",
 				ToolCalls:  []llm.ToolCall{{ID: "c1", Name: "cancel_appt", Input: "{}"}},
 			},
@@ -199,6 +207,10 @@ func TestRunWhilePending_AutoDeclinesPendingAndAppendsUserQuery(t *testing.T) {
 
 	scriptLLM := &recordingScriptedLLM{
 		script: []llm.Response{
+			{
+				StopReason: llm.StopToolUse,
+				ToolCalls:  []llm.ToolCall{{ID: "s1", Name: "search_tools", Input: `{"query":"track tool"}`}},
+			},
 			{
 				StopReason: llm.StopToolUse,
 				Text:       "Deleting...",
@@ -475,5 +487,47 @@ func TestRun_MCPToolsReadOnlyHint(t *testing.T) {
 
 	if len(reply2.Pending) != 1 || reply2.Pending[0].Name != "modify_mcp" {
 		t.Errorf("expected modify MCP tool to pause, got pending=%v", reply2.Pending)
+	}
+}
+
+// A model manipulated into calling a modifying tool it was never offered must not reach the
+// person as a confirmation: the call is refused, and nothing is left to confirm.
+func TestRun_UnofferedModifyingToolIsRefusedNotPending(t *testing.T) {
+	sessionID := t.Name()
+	ctx := context.Background()
+	cancelTool := &trackTool{name: "cancel_all", action: model.Delete}
+	scriptLLM := &recordingScriptedLLM{
+		script: []llm.Response{
+			{StopReason: llm.StopToolUse, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "cancel_all", Input: "{}"}}},
+			{StopReason: llm.StopEndTurn, Text: "No puedo hacer eso."},
+		},
+	}
+	mem := agent.NewMemMemory()
+	mem.EnsureSession(ctx, sessionID)
+	a, err := agent.New(agent.Config{
+		Identity:   agentcontext.Identity{Name: "Bot"},
+		LLMs:       agent.LLMConfig{Primary: scriptLLM},
+		Tokens:     quarterCounter{},
+		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
+		Memory:     mem,
+		IDGen:      testIDGen,
+		ToolIndex:  agent.NewMemToolIndex(),
+		LocalTools: []agent.Tool{cancelTool},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := a.Run(ctx, sessionID, "anula todo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.Pending) != 0 {
+		t.Fatalf("an unoffered tool must not become pending, got %v", reply.Pending)
+	}
+	if cancelTool.callCount != 0 {
+		t.Fatalf("cancel_all ran %d times", cancelTool.callCount)
+	}
+	if _, err := a.Confirm(ctx, sessionID); err == nil {
+		t.Fatal("nothing may be left to confirm")
 	}
 }

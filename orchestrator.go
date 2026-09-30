@@ -17,18 +17,8 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (Reply, e
 		return Reply{}, err
 	}
 
-	if len(pendingCalls) > 0 {
-		for _, call := range pendingCalls {
-			toolTurn := a.newTurn(llm.Message{
-				Role:       llm.RoleTool,
-				Content:    declinedToolResult,
-				ToolName:   call.Name,
-				ToolCallID: call.ID,
-			})
-			if err := a.mem.AppendTurn(ctx, sessionID, toolTurn); err != nil {
-				return Reply{}, fmt.Errf("failed to save declined turn: %w", err)
-			}
-		}
+	if err := a.decline(ctx, sessionID, pendingCalls); err != nil {
+		return Reply{}, err
 	}
 
 	userTurn := a.newTurn(llm.Message{
@@ -53,53 +43,11 @@ func (a *Agent) Confirm(ctx *context.Context, sessionID string) (Reply, error) {
 		return Reply{}, fmt.Errf(errNothingToConfirm)
 	}
 
+	// Pending calls are only ever calls to offered tools (see loop), so they are offered again here.
 	offered := a.pendingToolsOffered(pendingCalls)
-	actingFailures := 0
-
 	for _, call := range pendingCalls {
-		startTime := a.cfg.Clock.Now()
-
-		var output string
-		var execErr error
-
-		if call.Name == searchToolsName {
-			output = a.searchTools(ctx, sessionID, call, &offered)
-		} else {
-			output, execErr = a.registry.execute(ctx, call.Name, call.Input)
-		}
-
-		duration := (a.cfg.Clock.Now() - startTime) / 1e6
-
-		var errText string
-		if execErr != nil {
-			errText = execErr.Error()
-			actingFailures++
-		}
-
-		if logErr := a.mem.LogToolCall(ctx, sessionID, call.Name, call.Input, output, errText, duration); logErr != nil {
-			return Reply{}, fmt.Errf("agent: failed to log tool call: %w", logErr)
-		}
-
-		toolMsg := llm.Message{
-			Role:       llm.RoleTool,
-			Content:    output,
-			ToolName:   call.Name,
-			ToolCallID: call.ID,
-		}
-		if execErr != nil && !fmt.Contains(output, "Error:") {
-			toolMsg.Content = fmt.Sprintf("Error: %s", execErr.Error())
-		}
-
-		toolTurn := a.newTurn(toolMsg)
-		if err := a.mem.AppendTurn(ctx, sessionID, toolTurn); err != nil {
-			return Reply{}, fmt.Errf("failed to save tool turn: %w", err)
-		}
-
-		if actingFailures >= a.cfg.MaxRetries {
-			if err := a.fsm.transition(StateResponding); err != nil {
-				return Reply{}, err
-			}
-			return Reply{Text: "Maximum tool retries reached. Please try again."}, nil
+		if _, err := a.runCall(ctx, sessionID, call, &offered); err != nil {
+			return Reply{}, err
 		}
 	}
 
@@ -121,16 +69,8 @@ func (a *Agent) Decline(ctx *context.Context, sessionID string) (Reply, error) {
 		return Reply{}, fmt.Errf(errNothingToDecline)
 	}
 
-	for _, call := range pendingCalls {
-		toolTurn := a.newTurn(llm.Message{
-			Role:       llm.RoleTool,
-			Content:    declinedToolResult,
-			ToolName:   call.Name,
-			ToolCallID: call.ID,
-		})
-		if err := a.mem.AppendTurn(ctx, sessionID, toolTurn); err != nil {
-			return Reply{}, fmt.Errf("failed to save declined turn: %w", err)
-		}
+	if err := a.decline(ctx, sessionID, pendingCalls); err != nil {
+		return Reply{}, err
 	}
 
 	offered := a.pendingToolsOffered(pendingCalls)
@@ -242,18 +182,27 @@ func (a *Agent) loop(ctx *context.Context, sessionID, userQuery string, offered 
 
 		// Acting
 		if resp.StopReason == llm.StopToolUse {
+			// Only a tool the model was offered can wait for the person. A call to a tool that was
+			// never offered is refused below like any other, so confirming cannot run it.
+			var pending []llm.ToolCall
 			hasModifying := false
 			for _, call := range resp.ToolCalls {
-				if !a.registry.readOnly(call.Name) {
-					hasModifying = true
-					break
+				if call.Name == searchToolsName || isOffered(offered, call.Name) {
+					pending = append(pending, call)
+					if call.Name != searchToolsName && !a.registry.readOnly(call.Name) {
+						hasModifying = true
+					}
 				}
 			}
 
+			toolCalls := resp.ToolCalls
+			if hasModifying {
+				toolCalls = pending
+			}
 			assistantTurn := a.newTurn(llm.Message{
 				Role:      llm.RoleAssistant,
 				Content:   resp.Text,
-				ToolCalls: resp.ToolCalls,
+				ToolCalls: toolCalls,
 			})
 			if err := a.mem.AppendTurn(ctx, sessionID, assistantTurn); err != nil {
 				return Reply{}, fmt.Errf("failed to save assistant turn: %w", err)
@@ -266,7 +215,7 @@ func (a *Agent) loop(ctx *context.Context, sessionID, userQuery string, offered 
 				if err := a.fsm.transition(StateIdle); err != nil {
 					return Reply{}, err
 				}
-				return Reply{Text: resp.Text, Pending: resp.ToolCalls}, nil
+				return Reply{Text: resp.Text, Pending: pending}, nil
 			}
 
 			if err := a.fsm.transition(StateActing); err != nil {
@@ -274,64 +223,20 @@ func (a *Agent) loop(ctx *context.Context, sessionID, userQuery string, offered 
 			}
 
 			for _, call := range resp.ToolCalls {
-				startTime := a.cfg.Clock.Now()
-
-				var output string
-				var execErr error
-
-				if call.Name == searchToolsName {
-					output = a.searchTools(ctx, sessionID, call, &offered)
-				} else {
-					isOffered := false
-					for _, o := range offered {
-						if o.Name == call.Name {
-							isOffered = true
-							break
-						}
-					}
-
-					if !isOffered {
-						execErr = fmt.Errf("tool %s is not available; call search_tools first", call.Name)
-						output = fmt.Sprintf("Error: %s", execErr.Error())
-					} else {
-						output, execErr = a.registry.execute(ctx, call.Name, call.Input)
-					}
+				failed, err := a.runCall(ctx, sessionID, call, &offered)
+				if err != nil {
+					return Reply{}, err
 				}
-
-				duration := (a.cfg.Clock.Now() - startTime) / 1e6
-
-				var errText string
-				if execErr != nil {
-					errText = execErr.Error()
+				if failed {
 					actingFailures++
 				} else {
 					actingFailures = 0
 				}
-
-				if logErr := a.mem.LogToolCall(ctx, sessionID, call.Name, call.Input, output, errText, duration); logErr != nil {
-					return Reply{}, fmt.Errf("agent: failed to log tool call: %w", logErr)
-				}
-
-				toolMsg := llm.Message{
-					Role:       llm.RoleTool,
-					Content:    output,
-					ToolName:   call.Name,
-					ToolCallID: call.ID,
-				}
-				if execErr != nil && !fmt.Contains(output, "Error:") {
-					toolMsg.Content = fmt.Sprintf("Error: %s", execErr.Error())
-				}
-
-				toolTurn := a.newTurn(toolMsg)
-				if err := a.mem.AppendTurn(ctx, sessionID, toolTurn); err != nil {
-					return Reply{}, fmt.Errf("failed to save tool turn: %w", err)
-				}
-
 				if actingFailures >= a.cfg.MaxRetries {
 					if err := a.fsm.transition(StateResponding); err != nil {
 						return Reply{}, err
 					}
-					return Reply{Text: "Maximum tool retries reached. Please try again."}, nil
+					return Reply{Text: maxRetriesReply}, nil
 				}
 			}
 			continue
@@ -378,4 +283,70 @@ func (a *Agent) loop(ctx *context.Context, sessionID, userQuery string, offered 
 	}
 
 	return Reply{}, fmt.Errf("max iterations reached")
+}
+
+// decline answers each pending call with declinedToolResult, so no tool call is left without
+// its result.
+func (a *Agent) decline(ctx *context.Context, sessionID string, calls []llm.ToolCall) error {
+	for _, call := range calls {
+		turn := a.newTurn(llm.Message{
+			Role:       llm.RoleTool,
+			Content:    declinedToolResult,
+			ToolName:   call.Name,
+			ToolCallID: call.ID,
+		})
+		if err := a.mem.AppendTurn(ctx, sessionID, turn); err != nil {
+			return fmt.Errf("failed to save declined turn: %w", err)
+		}
+	}
+	return nil
+}
+
+// runCall executes one tool call, logs it and stores its result turn. A tool that is not in
+// offered is refused with an error result. failed reports whether the call failed.
+func (a *Agent) runCall(ctx *context.Context, sessionID string, call llm.ToolCall, offered *[]llm.ToolDef) (failed bool, err error) {
+	startTime := a.cfg.Clock.Now()
+
+	var output string
+	var execErr error
+	switch {
+	case call.Name == searchToolsName:
+		output = a.searchTools(ctx, sessionID, call, offered)
+	case !isOffered(*offered, call.Name):
+		execErr = fmt.Errf(errToolNotOffered, call.Name)
+	default:
+		output, execErr = a.registry.execute(ctx, call.Name, call.Input)
+	}
+
+	duration := (a.cfg.Clock.Now() - startTime) / 1e6
+
+	var errText string
+	if execErr != nil {
+		errText = execErr.Error()
+		output = fmt.Sprintf("Error: %s", errText)
+	}
+
+	if logErr := a.mem.LogToolCall(ctx, sessionID, call.Name, call.Input, output, errText, duration); logErr != nil {
+		return false, fmt.Errf("agent: failed to log tool call: %w", logErr)
+	}
+
+	turn := a.newTurn(llm.Message{
+		Role:       llm.RoleTool,
+		Content:    output,
+		ToolName:   call.Name,
+		ToolCallID: call.ID,
+	})
+	if err := a.mem.AppendTurn(ctx, sessionID, turn); err != nil {
+		return false, fmt.Errf("failed to save tool turn: %w", err)
+	}
+	return execErr != nil, nil
+}
+
+func isOffered(offered []llm.ToolDef, name string) bool {
+	for _, o := range offered {
+		if o.Name == name {
+			return true
+		}
+	}
+	return false
 }

@@ -135,6 +135,10 @@ if len(reply.Pending) > 0 {
 
 If the user typed a new query instead of confirming, calling `Run` automatically declines the pending actions before processing the new query.
 
+Only a tool the model was **offered** in this run can wait for confirmation. A call to a tool it
+was never offered (for example, one named in text an attacker planted in a patient's record) is
+refused like any undiscovered tool, so it never reaches the person as something to confirm.
+
 ## Tools
 
 Three sources are merged at construction:
