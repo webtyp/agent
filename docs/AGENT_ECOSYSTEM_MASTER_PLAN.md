@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-30 · agent v0.7.0, agentcontext v0.2.0, agentmemory v0.2.0, agenteval v0.1.1 published; qwen running
+> **Status:** IN PROGRESS · 2026-09-30 · llm v0.2.0 (Decider), mcp v0.2.38 (readOnlyHint) published; qwen in review round 1; agent v0.8.0 and mjosefa-jose plans written, not dispatched
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -28,7 +28,7 @@ to know what depends on what, what is decided, and what is still open.
 |---|---|---|---|
 | `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.7.0 (`Config.Clock`) |
 | `agenteval` | scenarios in Go run N times against a local model; deterministic checks + judge | tool (host only) | v0.1.1 (first real run: 7/10 on clinic hours) |
-| `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, types | contract | v0.1.0 |
+| `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, `Decider`, types | contract | v0.2.0 (`Decider`) |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.2.0 (user turns carry their local date) |
 | `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | v0.2.0 (agent v0.7 ports, tests in `tests/`) |
 | `retrieval` | chunking, ingestion, search; owns the semantic-search master plan | implementation | docs; first plan now unblocked (`embed.CountTokens`) |
@@ -38,6 +38,7 @@ to know what depends on what, what is decided, and what is still open.
 | `files` | whole-file read/write contract: `Reader`, `Writer`, `Appender`, `ErrNotExist`, conformance, `mem` | contract | v0.0.2 |
 | `kvdb` | key-value store; its `Store` is now `files.ReadWriter` + `files.Appender` | implementation | v0.1.1 |
 | `pdf` | PDF generation; reads/writes through `files` (`WithFiles`); first page opens automatically | implementation | v0.1.12 |
+| `mcp` | MCP server and client; `tools/list` announces read-only tools (`readOnlyHint`) | implementation | v0.2.38 |
 | `js` | the framework's JS API; Web Workers run their own binary, typed byte messages | framework | v0.0.11 |
 | `embed` | the `Embedder` contract (+ `MockEmbedder`, `CountTokens`) | contract | v0.4.0 |
 | `bekko` | `bekko-embedding-v1-a8m`, implements `embed.Embedder` | implementation | v0.1.0 (verified against the real model) |
@@ -47,7 +48,7 @@ to know what depends on what, what is decided, and what is still open.
 | `weights` | artifact format; `Int8Block32`, `DequantRow` | format | v0.2.0 |
 | `weightsc` | checkpoint → artifact; Qwen3.5 support, sharded checkpoints | tool | v0.2.0 (real Qwen3.5-0.8B: 851 MB, 320 tensors) |
 | `tokenizer` | BPE + schemes; `QwenScheme`, `EncodeOrdinary` | implementation | v0.3.1 (ids match the model's tokenizer.json) |
-| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` | implementation | plan written, **unblocked** |
+| `qwen` | Qwen3.5 as `llm.Client`/`Streamer`/`TokenCounter` (later `Decider`) | implementation | PR #1 in review round 1 (grammar missing, does not compile) |
 | `opfs` | browser implementation of `files` (OPFS in a Worker) | implementation | docs; plan next |
 | `phoneme` | Spanish grapheme-to-phoneme (v2 TTS) | implementation | docs |
 | `vector`, `vectordb` | vector math; document store | mixed | `vectordb` v0.2.4 (embed v0.4.0) |
@@ -89,9 +90,12 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| running | `qwen` | `qwen/docs/PLAN.md` (template, tool calls, grammar, injection test) | — |
-| to write | `mjosefa-jose` | rename, `jose.New`, first scenarios (calendar, injection) | `agenteval` v0.1.1 |
-| to decide | `agent` | reflection with a small model; confirmation of modifying tools | open decisions |
+| review | `qwen` | PR #1, round 1 commented: compile error, grammar (D12) missing, test-only exports | — |
+| written | `agent` v0.8.0 | `agent/docs/PLAN.md`: critic as `llm.Decider` (D21), confirmation (D22), tests in `tests/` | — |
+| written | `mjosefa-jose` | `mjosefa-jose/docs/PLAN.md`: rename, `jose.New`, calendar + injection scenarios, docs | — |
+| to write | `agenteval` v0.2.0 | adopt `agent` v0.8 (`Reply`, a check for `Pending`), `Env.Critic`, `FakeTool.Action` as `model.Action`, its judge as `llm.Decider`, `Env.Config()` | `agent` v0.8.0 |
+| to write | `qwen` | implement `llm.Decider` (letter probabilities, as the judge) | `qwen` v0.1.0 |
+| to write | `router` + `mcp` | operations carry a description that `tools/list` publishes | — |
 | to write | `decoder` v0.2.0 | Int8Block32 weights + axpy (SIMD form) | `decoder` v0.1.0 |
 | to write | `opfs` | implements `files` in a Worker | — |
 | to write | `app` | SIMD + non-SIMD worker builds (`nn/docs/SIMD.md`) | — |
@@ -157,6 +161,21 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
   template accepts only one system block. The `qwen` adapter merges `RoleSystem` messages
   (conversation summaries) into it.
 
+- **D21 — The critic is a closed question, never free text** (2026-09-30). `Config.Critic` is
+  an `llm.Decider` (new in `llm` v0.2.0) asked "does the answer state anything the tool results
+  do not support?". A rejected draft is never stored, the critic's words never reach the model,
+  and the one retry gets a fixed internal instruction. `nil` = no critic. Replaces free-text
+  reflection, which leaked into answers.
+- **D22 — Tools that modify wait for the person** (2026-09-30). A tool is read-only only when
+  `Tool.Action() == model.Read` (local) or MCP announces `readOnlyHint` (`mcp` v0.2.38 sets it
+  only for `model.Read`). Otherwise `Run` returns `Reply.Pending` and the application calls
+  `Confirm` or `Decline`. The pending state is the last assistant turn in memory, so it
+  survives a reload.
+- **D23 — Security against prompt injection is code, not prompt.** Special tokens typed by a
+  person are text (`qwen`, tested), the model can only call offered tools (D12), Jose has only the
+  staff member's permissions, modifying tools wait for confirmation (D22), and Jose has no tool
+  that sends data out. Injection scenarios (direct and through data) live in `mjosefa-jose/evals`.
+
 ## Open decisions
 
 1. **Runtime tool pre-retrieval for small models.** Measured with Qwen3.5-0.8B: the model calls
@@ -166,11 +185,7 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
    and offers the top matches directly (plus `search_tools` for anything else). That removes one
    hop. `agent/integration_test.go` `TestIntegration_ClinicHours` is the acceptance test.
 2. **STT/TTS models for v2**, measured when v2 starts.
-3. **Reflection with a small model.** The critic is the same 0.8B model. Candidates: turn
-   reflection off by default for small models, make the critic a typed yes/no decision (the
-   judge's technique) instead of free text, or never show the critic's text to the answering
-   step. Measured with `agenteval` before choosing.
-4. **4-bit weights may be required by memory, not only by speed (D13).** The first application
+3. **4-bit weights may be required by memory, not only by speed (D13).** The first application
    (Jose, in `veltylabs/mjosefa-jose`) runs the model in each clinic staff member's browser. The
    weakest machine has 4 GB of RAM (Windows 10 LTSC on about 70 % of them; Intel NUC on half).
    The int8 artifact is 851 MB, and the model needs about 1.2 GB free in the tab. The first
