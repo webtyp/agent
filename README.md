@@ -49,6 +49,7 @@ first.
 - [Memory architecture](docs/diagrams/MEMORY_ARCHITECTURE.md)
 - [MCP client flow](docs/diagrams/MCP_CLIENT_FLOW.md)
 - [Tool search](docs/diagrams/TOOL_SEARCH.md)
+- [Ecosystem map (español): repos, message flow, weights, proposals](docs/diagrams/ECOSYSTEM_MAP.md)
 - [Integration test scenario](docs/diagrams/INTEGRATION_SCENARIO.md)
 
 ### History

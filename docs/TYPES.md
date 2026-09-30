@@ -38,6 +38,7 @@ type Config struct {
 	Budget   agentcontext.Budget // required: the token limits of LLMs.Primary
 	Memory   MemoryStore         // required
 	IDGen    model.IDGenerator   // required, e.g. webtyp.com/unixid
+	Clock    Clock               // the users' time and timezone (default MachineClock)
 
 	RecentTurns     int // turns loaded per reasoning step (default 20)
 	RecentSummaries int // summaries loaded per reasoning step (default 5)
@@ -54,6 +55,20 @@ type Config struct {
 
 `Tokens` and `Budget` have no default. The context size and tokenizer are facts of the model,
 and a guessed value would silently mis-budget every request.
+
+### `Clock`
+
+The current time and the users' timezone offset. The model sees every user message prefixed
+with the local date and time it was said (`webtyp/agentcontext` renders it), which is how an
+agent knows what "today" is. `MachineClock` (the default) is the machine's own clock: in the
+browser, the user's computer. Tests inject a fixed one.
+
+```go
+type Clock interface {
+	Now() int64            // unix nanoseconds, UTC
+	UTCOffsetMinutes() int // e.g. -180 for UTC-3
+}
+```
 
 ### `LLMConfig`
 

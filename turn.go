@@ -5,7 +5,6 @@ import (
 	"webtyp.com/context"
 	"webtyp.com/fmt"
 	"webtyp.com/llm"
-	"webtyp.com/time"
 )
 
 // newTurn stamps a message with an ID, its token count and the current time.
@@ -14,7 +13,7 @@ func (a *Agent) newTurn(msg llm.Message) agentcontext.Turn {
 		ID:        a.idGen.NewID(),
 		Message:   msg,
 		Tokens:    a.cfg.Tokens.CountTokens(msg.Content),
-		CreatedAt: time.Now() / 1e9,
+		CreatedAt: a.cfg.Clock.Now() / 1e9,
 	}
 }
 
@@ -34,6 +33,8 @@ func (a *Agent) request(ctx *context.Context, sessionID string, offered []llm.To
 		Summaries: summaries,
 		Turns:     turns,
 		Tools:     offered,
+
+		UTCOffsetMinutes: a.cfg.Clock.UTCOffsetMinutes(),
 	}
 
 	if old := agentcontext.Compact(in, a.cfg.Budget, a.cfg.Tokens); old != nil {
@@ -47,7 +48,7 @@ func (a *Agent) request(ctx *context.Context, sessionID string, offered []llm.To
 			return llm.Request{}, fmt.Errf("failed to generate summary: %w", err)
 		}
 
-		now := time.Now() / 1e9
+		now := a.cfg.Clock.Now() / 1e9
 		sum := agentcontext.Summary{
 			ID:         a.idGen.NewID(),
 			Text:       resp.Text,

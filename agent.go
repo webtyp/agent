@@ -27,6 +27,9 @@ func New(cfg Config) (*Agent, error) {
 	}
 
 	// Apply defaults
+	if cfg.Clock == nil {
+		cfg.Clock = MachineClock{}
+	}
 	if cfg.ToolSearchLimit == 0 {
 		cfg.ToolSearchLimit = 5
 	}

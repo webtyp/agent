@@ -4,7 +4,6 @@ import (
 	"webtyp.com/context"
 	"webtyp.com/fmt"
 	"webtyp.com/llm"
-	"webtyp.com/time"
 )
 
 // Run executes the full ReAct + Reflection loop for a single user query.
@@ -85,7 +84,7 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, 
 
 			// Execute tools
 			for _, call := range resp.ToolCalls {
-				startTime := time.Now()
+				startTime := a.cfg.Clock.Now()
 
 				var output string
 				var execErr error
@@ -109,7 +108,7 @@ func (a *Agent) Run(ctx *context.Context, sessionID, userQuery string) (string, 
 					}
 				}
 
-				duration := (time.Now() - startTime) / 1e6
+				duration := (a.cfg.Clock.Now() - startTime) / 1e6
 
 				var errText string
 				if execErr != nil {

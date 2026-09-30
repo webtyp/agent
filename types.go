@@ -46,6 +46,7 @@ type Config struct {
 	Budget   agentcontext.Budget // required: the token limits of LLMs.Primary
 	Memory   MemoryStore         // required
 	IDGen    model.IDGenerator   // required
+	Clock    Clock               // the users' time and timezone (default: this machine's, MachineClock)
 
 	ToolIndex       ToolIndex // required: finds tools for search_tools (NewMemToolIndex for keywords)
 	ToolSearchLimit int       // tools returned per search (default 5)

@@ -40,6 +40,16 @@ type MemoryStore interface {
 	ToolLogStore
 }
 
+// Clock is the current time as the agent's users live it. The model sees every user message
+// with the local date and time it was said (see webtyp/agentcontext), so an agent that answers
+// "today" needs the right clock and timezone. Tests inject a fixed one.
+type Clock interface {
+	// Now is the current time in unix nanoseconds, UTC.
+	Now() int64
+	// UTCOffsetMinutes is the users' timezone offset from UTC, e.g. -180 for UTC-3.
+	UTCOffsetMinutes() int
+}
+
 // ToolIndex finds, among every tool the agent can run, the ones that match what the model
 // is looking for. webtyp/agentmemory implements it by meaning; NewMemToolIndex by keywords.
 type ToolIndex interface {

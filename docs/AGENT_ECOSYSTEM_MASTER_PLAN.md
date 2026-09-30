@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-29 · agent v0.6.0, decoder v0.1.0, tokenizer v0.3.0, weightsc v0.2.0 published; qwen and agentmemory unblocked
+> **Status:** IN PROGRESS · 2026-09-30 · agent v0.7.0 (Clock), agentcontext v0.2.0 (dated user turns), agenteval docs + judge measured; qwen, agentmemory, agenteval plans next
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -26,9 +26,10 @@ to know what depends on what, what is decided, and what is still open.
 
 | Repository | One concern | Kind | State |
 |---|---|---|---|
-| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.6.0 (integration test against real Qwen3.5 via llama-server) |
+| `agent` | the orchestrator: ReAct loop, FSM, tool registry, tool search, memory ports | orchestrator | v0.7.0 (`Config.Clock`) |
+| `agenteval` | scenarios in Go run N times against a local model; deterministic checks + judge | tool (host only) | docs; judge decider-4b measured (`docs/JUDGE.md`) |
 | `llm` | contract with a language model: `Client`, `Streamer`, `TokenCounter`, types | contract | v0.1.0 |
-| `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.1.0 |
+| `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Budget.Validate` | pure library | v0.2.0 (user turns carry their local date) |
 | `agentmemory` | agent ports over `orm` + `ddl`; later `ToolIndex` over `retrieval` | implementation | phase 3b plan written (waits for agent v0.6.0) |
 | `retrieval` | chunking, ingestion, search; owns the semantic-search master plan | implementation | docs; first plan now unblocked (`embed.CountTokens`) |
 | `audio` | `audio.PCM` | contract | v0.1.0 |
@@ -168,6 +169,12 @@ Published: `llm`, `agentcontext`, `audio`, `stt`, `tts`, `embed` (v0.3.0, v0.4.0
    and offers the top matches directly (plus `search_tools` for anything else). That removes one
    hop. `agent/integration_test.go` `TestIntegration_ClinicHours` is the acceptance test.
 2. **STT/TTS models for v2**, measured when v2 starts.
+3. **4-bit weights may be required by memory, not only by speed (D13).** The first application
+   (Jose, in `veltylabs/mjosefa-jose`) runs the model in each clinic staff member's browser. The
+   weakest machine has 4 GB of RAM (Windows 10 LTSC on about 70 % of them; Intel NUC on half).
+   The int8 artifact is 851 MB, and the model needs about 1.2 GB free in the tab. The first
+   measurement once `qwen` runs is peak tab memory and tokens per second on that 4 GB machine.
+   If it does not fit, the 4-bit plan (about 450 MB) is written then.
 
 ### Found defects, not fixed yet
 
