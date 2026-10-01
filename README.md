@@ -50,6 +50,7 @@ first.
 - [MCP client flow](docs/diagrams/MCP_CLIENT_FLOW.md)
 - [Tool search](docs/diagrams/TOOL_SEARCH.md)
 - [Ecosystem map (español): repos, message flow, weights, proposals](docs/diagrams/ECOSYSTEM_MAP.md)
+- [Hybrid agent proposal (español)](docs/HYBRID_DESIGN.md) — a decision model drives, code and templates answer ([flow](docs/diagrams/HYBRID_FLOW.md))
 - [Integration test scenario](docs/diagrams/INTEGRATION_SCENARIO.md)
 
 ### History
