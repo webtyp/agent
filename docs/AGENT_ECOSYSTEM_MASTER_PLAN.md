@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-10-01 · PRs ready for review: agent v1.0.0 (#16), opfs v0.1.0 (#1); published: lfm v0.1.2 (writer), qwen v0.4.5, tokenizer v0.4.2 (`Stream`), decoder v0.5.1; the assistant is now **Cote** (`veltylabs/mjosefa-cote`)
+> **Status:** IN PROGRESS · 2026-10-01 · published: **agent v1.0.0** (hybrid turn, ReAct removed), **opfs v0.1.0**, lfm v0.1.2 (writer), qwen v0.4.5, tokenizer v0.4.2 (`Stream`), decoder v0.5.1; next: 4-bit blocks locally, then the `agenteval` and `mjosefa-cote` plans; the assistant is **Cote** (`veltylabs/mjosefa-cote`)
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -17,24 +17,24 @@ with its open decisions answered in `app/docs/PLAN_DRAFT.md`. Do not mix the two
 
 In order:
 
-1. **Review `agent` v1.0.0** — PR [webtyp/agent#16](https://github.com/webtyp/agent/pull/16).
-   `cd agent && codejob` checks it out; the spec is `docs/PLAN.md` on that branch and
-   [HYBRID_DESIGN.md](HYBRID_DESIGN.md). Check: the question texts to the decider match the
-   measured ones word for word; the guard runs before any model; the injection question only on
-   risky turns; every deleted symbol is gone. This working tree carries uncommitted doc edits
-   (this page, HYBRID_DESIGN, ECOSYSTEM_MAP: the Cote rename) that `codejob` stashes and
-   re-applies; commit them with the review. `tinygo build -target wasm -o /dev/null .` fails on
-   any non-main package, which is a tooling limit, not a defect.
-2. **Review `opfs` v0.1.0** — PR [webtyp/opfs#1](https://github.com/webtyp/opfs/pull/1); tests
-   run in the browser (`GOOS=js GOARCH=wasm go test -exec wasmbrowsertest ./...`).
-3. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
+1. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
    WASM): `weights` `Int4Block32` (Q4_0 layout: 16 bytes per 32 values, low nibble = values 0–15,
    high = 16–31, value = (nibble − 8) × scale, float32 scales like `Int8Block32`) → `nn`
    `MatVecQ4Block32` (int4 weights × int8 activations, two rows at a time) and `weightsc`
    `-quant int4-block32` → `decoder` `matrix` reads it. Then measure decider-0.8b int4 on the 36
    questions (must stay ≥ 32/36) and its size and speed in WASM.
-4. Plans for `agenteval` (decider and writer in `Env`) and `mjosefa-cote` (texts, templates,
-   guard phrases, the direct-injection scenario now expects a refusal), after agent v1.0.0.
+2. Plans for `agenteval` (decider and writer in `Env`) and `mjosefa-cote` (texts, templates,
+   guard phrases, the direct-injection scenario now expects a refusal). Both **do not build**
+   against agent v1.0.0 until then; that is expected.
+
+Lessons from the v1.0.0 round (2026-10-01):
+
+- A Jules PR with only docs can mean the session failed and the resumed one lost the code. The
+  code is in the session's activities (`GET /v1alpha/sessions/<id>/activities`,
+  `artifacts[].changeSet.gitPatch`): the last patch before `sessionFailed` applies on the PR
+  branch. agent v1.0.0 was recovered this way, not rewritten.
+- Review found Jules editing production code to fit a hand-written test mock (reverted); tests
+  against a real `mcp.Server` caught D28.
 
 ## What this is
 
@@ -59,7 +59,7 @@ know what depends on what, what is decided, and what comes next.
 
 | Repository | One concern | Kind | Version |
 |---|---|---|---|
-| `agent` | the orchestrator: the hybrid turn, tool registry, confirmation, memory ports | orchestrator | v0.10.9 (ReAct); **v1.0.0 in review** |
+| `agent` | the orchestrator: the hybrid turn, tool registry, confirmation, memory ports | orchestrator | **v1.0.0** (hybrid) |
 | `agenteval` | scenarios in Go run N times against local models; deterministic checks + judge (decider-4b) | tool (host only) | v0.2.7 |
 | `llm` | contract with a model: `Client`, `Streamer`, `TokenCounter`, `Decider` | contract | v0.2.2 |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Stamp` | pure library | v0.3.1 |
@@ -75,7 +75,7 @@ know what depends on what, what is decided, and what comes next.
 | `router` | the app's routes; `Describe` on operations (what tools say about themselves) | implementation | v0.3.1 |
 | `embed`, `bekko`, `encoder` | embedding contract, the bekko model, the encoder graph | contract, implementations | v0.4.0, v0.1.9, v0.2.4 |
 | `files` | whole-file contract: `Reader`, `Writer`, `Appender`, conformance, `mem` | contract | v0.0.2 |
-| `opfs` | browser implementation of `files` (OPFS, chunked async API, page and Worker) | implementation | v0.1.0 in review |
+| `opfs` | browser implementation of `files` (OPFS, chunked async API, page and Worker) | implementation | v0.1.0 |
 | `js` | the framework's JS API; Web Workers run their own binary | framework | v0.0.11 |
 | `retrieval`, `vector`, `vectordb` | chunking and search; vector math; document store | implementations | v0.0.1, v0.1.1, v0.2.4 |
 | `audio`, `stt`, `tts`, `phoneme` | voice (version 2) | contracts, implementation | v0.1.0, v0.1.0, v0.0.2, v0.0.1 |
@@ -119,12 +119,10 @@ flowchart TD
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| review | `agent` v1.0.0 | the hybrid turn (D24, D26) replaces ReAct — PR #16 | planning agent's review |
-| review | `opfs` v0.1.0 | OPFS as `files.ReadWriter` + `Appender`, chunked async API — PR #1 | planning agent's review |
+| next, local | `weights` + `weightsc` + `nn` + `decoder` | 4-bit blocks (D6 of HYBRID_DESIGN), see "Start here" | — |
 | to write | `agenteval` | `Env.Decider`, `Env.Writer`; drop `Env.Model`, `Env.Critic`, `Env.Budget` | agent v1.0.0 |
 | to write | `mjosefa-cote` | `Texts`, `Templates`, `Guard.Phrases`; the direct-injection scenario expects a refusal (D26) | agent v1.0.0, agenteval |
-| to write | `agentworker` (new) | build the agent in a Web Worker: weights and the decision cache from OPFS; device tier and downloads per [app/docs/PWA_ARTIFACTS_MASTER_PLAN.md](https://github.com/webtyp/app/blob/main/docs/PWA_ARTIFACTS_MASTER_PLAN.md) | `opfs`, agent v1.0.0, that plan's phases 1–2 |
-| next, local | `weights` + `weightsc` + `nn` + `decoder` | 4-bit blocks (D6 of HYBRID_DESIGN), see "Start here" | — |
+| to write | `agentworker` (new) | build the agent in a Web Worker: weights and the decision cache from OPFS; device tier and downloads per [app/docs/PWA_ARTIFACTS_MASTER_PLAN.md](https://github.com/webtyp/app/blob/main/docs/PWA_ARTIFACTS_MASTER_PLAN.md) | that plan's phases 1–2 (`opfs` and agent v1.0.0 are published) |
 | moved | `device`, `app`, `js` | tier detection by feature test (D25) now belongs to the PWA wave (`webtyp/device`) | PWA master plan |
 | later | `qwen`, `lfm` | one shared prefix cache instead of one per model family (`lfm` has none yet) | — |
 | later | `nn`, `decoder` | profile the scalar remainder under WASM (SIMD gives 2× end to end, not the kernel's 4.3×) | — |
@@ -181,6 +179,9 @@ flowchart TD
 - **D27 — The decision prefix survives a restart** (2026-10-01). `qwen.SaveDecisionCache` /
   `LoadDecisionCache` over `decoder.State.MarshalBinary`: the tool list read once (22–44 s) is
   kept by the Worker in OPFS (≈ 19 MB) and loaded on the next start.
+- **D28 — An MCP tool's result is its text** (2026-10-01, agent v1.0.0). The registry returns the
+  first text block (`mcp.GetText`), not the raw `content` array: templates and the person read it
+  directly. Content that is not text is passed as is.
 
 ### Superseded (kept as a record)
 
