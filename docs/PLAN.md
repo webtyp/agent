@@ -780,3 +780,8 @@ grep -rn "REACT_FLOW\|FSM_STATE\|TOOL_SEARCH\|INTEGRATION_SCENARIO" README.md do
 | 5 | `agent.go`, `turn.go`; delete `orchestrator.go`, `fsm.go`, `tool_search.go` | builds for wasm and TinyGo |
 | 6 | `tests/fakes_test.go`, `new_test.go`, `guard_test.go`, `route_test.go`, `arguments_test.go`, `answer_test.go`, `confirm_test.go`, `memory_test.go`; deleted test files | all green |
 | 7 | docs | acceptance criteria pass |
+
+## Executor notes
+
+- All stages 1 through 7 executed according to spec.
+- `tinygo` is not pre-installed in the execution sandbox environment, but compilation for WASM (`GOOS=js GOARCH=wasm go build ./...`) was fully verified and passed cleanly.

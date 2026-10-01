@@ -1,79 +1,29 @@
-# Implementation — `webtyp/agent`
+# Implementation Details — `webtyp/agent`
 
-This page is for someone about to change the code. It covers where each piece lives, how it is
-tested, and how to run the real-model test. The *why* is in [ARCHITECTURE.md](ARCHITECTURE.md),
-the types in [TYPES.md](TYPES.md), and the rules every change must follow in
-[AGENTS.md](../AGENTS.md).
+## File Organization
 
-## Files
+The repository follows a flat layout in the root directory for library code and isolates all tests in `tests/`.
 
 ```
-agent/
-├── agent.go            New(cfg): validation, defaults, tool wiring — the only DI point
-├── interfaces.go       memory ports + Tool + MCPServer
-├── types.go            Agent, Config, LLMConfig, Knowledge, ToolLog
-├── errors.go           error message constants
-├── prompts.go          reflection prompt constants
-├── orchestrator.go     Run: ReAct + reflection loop
-├── turn.go             newTurn (ID, tokens, time) and request (load → compact → compile)
-├── fsm.go              states and valid transitions
-├── mcp_client.go       JSON-RPC 2.0 client over webtyp/mcp
-├── mcp_json.go         MCP wire helpers
-├── mcp_registry.go     merges local tools, MCP handlers, remote MCP servers
-├── mem_memory.go       in-memory reference MemoryStore
-├── conformance/        the suite every MemoryStore implementation runs
-└── *_test.go           unit, DDT and integration tests
+├── agent.go            Constructor (New) & agent struct
+├── arguments.go        Tool argument extraction from InputSchema
+├── clock.go            Clock interface and MachineClock implementation
+├── decide.go           Decision model helper questions
+├── errors.go           Unexported error constants
+├── guard.go            Code guard (sanitization, length, role lines, forbidden phrases)
+├── interfaces.go       Memory, tool, clock, and MCP interfaces
+├── mcp_client.go       HTTP MCP client implementation
+├── mcp_json.go         JSON decoding helpers for MCP protocol
+├── mcp_registry.go     Registry for local tools, MCP handlers, and MCP servers
+├── mem_memory.go       In-memory reference implementation of MemoryStore
+├── mem_tool_index.go   In-memory keyword-based implementation of ToolIndex
+├── texts.go            Texts, Template, and Data structs
+├── turn.go             Run, Confirm, Decline execution flow
+├── types.go            Public Reply, Agent, Knowledge, ToolLog, and Config structs
+├── conformance/        Conformance test suite for MemoryStore implementations
+└── tests/              Public API unit tests
 ```
 
 ## Testing
 
-Run everything with `gotest` (vet, race, coverage, WASM) and `gotest -tinygo` (the real browser
-compiler).
-
-### Diagram-driven tests
-
-Every flow in `docs/diagrams/` has a test that walks each branch.
-
-| Test | Diagram |
-|---|---|
-| `TestReAct_ToolCallThenAnswer` | [REACT_FLOW](diagrams/REACT_FLOW.md) |
-| `TestReAct_ReflectionApproved` | REACT_FLOW |
-| `TestReAct_ReflectionRetry` | REACT_FLOW |
-| `TestReAct_ToolErrorSelfCorrect` | REACT_FLOW |
-| `TestReAct_MaxIterationsGuard` | [FSM_STATE](diagrams/FSM_STATE.md) |
-| `TestFSM_Transitions` | FSM_STATE |
-| `TestRun_CompactsAndSummarizesOldestTurns` | `agentcontext` context-window diagram |
-| `TestRun_StopMaxTokensReturnsError` | FSM_STATE |
-| `TestMCPClient_Discovery`, `TestMCPClient_CallTool` | [MCP_CLIENT_FLOW](diagrams/MCP_CLIENT_FLOW.md) |
-
-Unit tests use mocks (`mock_llm_test.go`, `mock_memory_test.go`, `mock_mcp_test.go`) and a
-`quarterCounter` (`len(text)/4`) as the token counter. Each test uses `t.Name()` as its session
-ID, so tests never see each other's memory.
-
-### Memory conformance
-
-`conformance.Run(t, conformance.Factory{…})` is the contract test for `MemoryStore`. It runs
-here against `mem_memory.go` and in `webtyp/agentmemory` against its real backends. A new
-implementation is only valid once it passes this suite.
-
-### Real-model integration test
-
-`integration_test.go` (build tag `integration`, host only) runs the two clinic scenarios of
-[INTEGRATION_SCENARIO](diagrams/INTEGRATION_SCENARIO.md) against a real model served by
-**llama.cpp's `llama-server`** on the developer machine. The test contains a small
-OpenAI-compatible client that implements `llm.Client` and `llm.TokenCounter` (through
-`/tokenize`, so budgets use the model's real tokenizer). It is test code and is not shipped.
-
-```bash
-# 1. Start llama-server with a small GGUF model (llama.cpp build: see the
-#    Resources/LLM/LLamaCPP install notes on the developer machine).
-llama-server -m <model>.gguf --port 8080 --jinja
-
-# 2. Run the scenarios (skipped automatically when :8080 is not answering /health).
-go test -tags integration -run TestIntegration -v -timeout 300s ./...
-```
-
-`--jinja` makes `llama-server` apply the model's own chat template, which tool calling needs.
-llama.cpp is **not** the runtime of the product. In the browser, the model runs in Go/TinyGo
-(see the [master plan](AGENT_ECOSYSTEM_MASTER_PLAN.md), decision D2). Here it is only a
-reference model to test the loop against.
+Run tests with `go test ./...`. All tests consume only the public exported API of `webtyp.com/agent`.

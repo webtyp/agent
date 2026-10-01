@@ -35,7 +35,7 @@ cuando hace falta redactar. El flujo completo está en
 | `llm.Decider` | contrato: pregunta cerrada → opción + probabilidad | `webtyp/llm` | publicado (v0.2.0) |
 | decider-0.8b | implementa `llm.Decider` en el navegador | runtime Qwen3.5 (`qwen` + `decoder`) | arquitectura soportada; falta leer la respuesta por letras y los pesos de 4 bits |
 | LFM2.5-350M | redactor: `llm.Client` | runtime nuevo (`lfm`) + `decoder` | falta: capas de convolución corta de LFM2 |
-| flujo híbrido | ordena las decisiones de un turno | `webtyp/agent` | por diseñar (D1) |
+| flujo híbrido | ordena las decisiones de un turno | `webtyp/agent` | publicado (v1.0.0) |
 | plantillas | respuestas a preguntas conocidas | la aplicación (Jose) | por diseñar (D3) |
 | crítico | `Config.Critic llm.Decider` | `webtyp/agent` | publicado (v0.8) |
 | confirmación | `Reply.Pending` + `Confirm`/`Decline` | `webtyp/agent` | publicado (v0.8) |

@@ -1,7 +1,7 @@
 # Types — `webtyp/agent`
 
 This page says **which library owns each type** the agent uses, and documents the ones declared
-here. The code (`types.go`) is the source of truth for fields, and this page explains how the
+here. The code (`types.go`, `texts.go`, `guard.go`) is the source of truth for fields, and this page explains how the
 types fit together.
 
 ## Who owns what
@@ -13,13 +13,11 @@ name.
 | Type | Library | What it is |
 |---|---|---|
 | `llm.Message`, `llm.Role`, `llm.ToolCall` | `webtyp/llm` | one entry of the conversation as the model sees it |
-| `llm.Request`, `llm.Response`, `llm.StopReason`, `llm.Usage`, `llm.ToolDef` | `webtyp/llm` | one exchange with the model |
+| `llm.Request`, `llm.Response`, `llm.StopReason`, `llm.Usage`, `llm.ToolDef`, `llm.Decider` | `webtyp/llm` | model exchanges and decider contract |
 | `llm.Client`, `llm.TokenCounter` | `webtyp/llm` | the model and its tokenizer |
 | `agentcontext.Turn` | `webtyp/agentcontext` | an `llm.Message` as stored: ID, token count, timestamp |
 | `agentcontext.Summary` | `webtyp/agentcontext` | model-written text that replaced a range of turns |
-| `agentcontext.Identity` | `webtyp/agentcontext` | who the agent is; becomes the request's `System` |
-| `agentcontext.Budget` | `webtyp/agentcontext` | the model's context and output token limits |
-| `Agent`, `Config`, `Reply`, `LLMConfig`, `Tool`, `Knowledge`, `ToolLog` | `webtyp/agent` (this repo) | below |
+| `Agent`, `Config`, `Reply`, `Texts`, `Template`, `Data`, `Guard`, `Tool`, `Knowledge`, `ToolLog` | `webtyp/agent` (this repo) | below |
 
 ## Declared here
 
@@ -34,8 +32,8 @@ The value `New(cfg)` returns. Its fields are unexported, and its public methods 
 
 ```go
 type Reply struct {
-	Text    string         // answer to show the person
-	Pending []llm.ToolCall // non-read-only tool calls awaiting confirmation
+	Text    string         // answer to show the person. While Pending is non-empty it is Texts.Confirm.
+	Pending []llm.ToolCall // tool calls that change data, waiting for the person: show them and call Confirm or Decline.
 }
 ```
 
@@ -43,41 +41,81 @@ type Reply struct {
 
 ```go
 type Config struct {
-	Identity agentcontext.Identity
-	LLMs     LLMConfig           // required: LLMs.Primary != nil
-	Critic   llm.Decider         // optional: checks each answer before it reaches the person; nil = no check
-	Tokens   llm.TokenCounter    // required: the tokenizer of LLMs.Primary
-	Budget   agentcontext.Budget // required: the token limits of LLMs.Primary
-	Memory   MemoryStore         // required
-	IDGen    model.IDGenerator   // required, e.g. webtyp.com/unixid
-	Clock    Clock               // the users' time and timezone (default MachineClock)
+	Decider   llm.Decider // required: picks the tool, enum arguments, yes/no answers; checks injection and the writer
+	Writer    llm.Client  // optional: phrases a tool's data when no template answers; nil = the data is shown as is
+	Texts     Texts       // required: the application's words (texts.go)
+	Templates []Template  // optional: answers from one tool's result, in the application's words
+	Guard     Guard       // the code check every message passes first (guard.go)
 
-	ToolIndex       ToolIndex // required: finds tools for search_tools (NewMemToolIndex for keywords)
-	ToolSearchLimit int       // tools returned per search (default 5)
-	PreselectTools  int       // tools offered with search_tools on the first step, by relevance to the message (default 3)
+	Tokens llm.TokenCounter  // required: counts the tokens of each stored turn
+	Memory MemoryStore       // required
+	IDGen  model.IDGenerator // required
+	Clock  Clock             // the users' time and timezone (default MachineClock)
 
-	RecentTurns     int // turns loaded per reasoning step (default 20)
-	RecentSummaries int // summaries loaded per reasoning step (default 5)
+	ToolIndex  ToolIndex // required: finds the candidate tools for a message (NewMemToolIndex for keywords)
+	Candidates int       // tools the decision model chooses among, 1..9 (default 5)
 
 	LocalTools  []Tool      // in-process Go tools
 	MCPHandlers []MCPServer // MCP servers running in the same process
 	MCPServers  []string    // remote MCP base URLs ("/mcp" is appended by webtyp/mcp)
 
-	MaxIterations int // Reasoning→Acting cycles before giving up (default 10)
-	MaxRetries    int // consecutive tool failures before responding (default 3)
-	MCPTimeoutMS  int // default 30000
+	WriterMaxTokens int // default 128
+	MCPTimeoutMS    int // default 30000
 }
 ```
 
-`Tokens` and `Budget` have no default. The context size and tokenizer are facts of the model,
-and a guessed value would silently mis-budget every request.
+### `Texts`
+
+```go
+type Texts struct {
+	Speaker      string
+	Assistant    string
+	NoToolOption string
+
+	NoTool   string
+	Refused  string
+	TooLong  string
+	Clarify  string
+	Confirm  string
+	Declined string
+	Failed   string
+	Yes      string
+	No       string
+	Found    string
+
+	WriterSystem  string
+	DataLabel     string
+	QuestionLabel string
+}
+```
+
+### `Template` & `Data`
+
+```go
+type Template struct {
+	Tool   string
+	Answer func(d Data) (string, bool)
+}
+
+type Data struct {
+	Message          string
+	Result           string
+	Now              int64
+	UTCOffsetMinutes int
+}
+```
+
+### `Guard`
+
+```go
+type Guard struct {
+	MaxChars int
+	Phrases  []string
+	Roles    []string
+}
+```
 
 ### `Clock`
-
-The current time and the users' timezone offset. The model sees every user message prefixed
-with the local date and time it was said (`webtyp/agentcontext` renders it), which is how an
-agent knows what "today" is. `MachineClock` (the default) is the machine's own clock: in the
-browser, the user's computer. Tests inject a fixed one.
 
 ```go
 type Clock interface {
@@ -85,14 +123,6 @@ type Clock interface {
 	UTCOffsetMinutes() int // e.g. -180 for UTC-3
 }
 ```
-
-### `LLMConfig`
-
-```go
-type LLMConfig struct {
-	Primary    llm.Client // reasoning and acting (required)
-	Summarizer llm.Client // writes summaries when the conversation is compacted (defaults to Primary)
-}
 
 ### `Tool`
 
@@ -105,26 +135,20 @@ type Tool interface {
 	Execute(ctx *context.Context, argsJSON string) (string, error)
 }
 ```
-```
 
 ### `Knowledge`
-
-A fact or rule the agent can search. `SessionID == ""` means global: visible from every session.
-A non-empty `SessionID` is visible only from that session.
 
 ```go
 type Knowledge struct {
 	ID        string
 	SessionID string
 	Content   string
-	Source    string // who added it, e.g. "agent" or a document name
-	CreatedAt int64  // unix seconds
+	Source    string // default "agent"
+	CreatedAt int64  // unixepoch
 }
 ```
 
 ### `ToolLog`
-
-The audit record of one tool execution.
 
 ```go
 type ToolLog struct {
@@ -135,6 +159,6 @@ type ToolLog struct {
 	OutputText string // empty on error
 	ErrText    string // empty on success
 	DurationMS int64
-	CreatedAt  int64 // unix seconds
+	CreatedAt  int64 // unixepoch
 }
 ```

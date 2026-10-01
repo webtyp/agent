@@ -2,11 +2,10 @@
 
 ## What this is
 
-`agent` is the **orchestrator** of the webtyp ecosystem. It runs the loop that turns a user
-message, a set of tools and a language model into an answer. The model reasons, the agent runs
-the tools the model asks for, feeds the results back, and repeats until the model answers.
+`agent` is the **orchestrator** of the webtyp ecosystem. It drives the hybrid turn that turns a user
+message, a set of tools, a code guard, a decision model, and optional templates or a writer model into an answer.
 
-You use it from an application. You give it a model, a memory store and tools in a `Config`,
+You use it from an application. You give it a decision model (`llm.Decider`), texts, templates, guard settings, a memory store and tools in a `Config`,
 and call `agent.Run(ctx, sessionID, text)`.
 
 It is designed to run **inside the browser**, in Go compiled to WebAssembly with TinyGo, next
@@ -15,9 +14,9 @@ Both are injected, so one agent binary works with any of them.
 
 ## Principles
 
-- **Deterministic control.** A finite-state machine (FSM) decides which step can follow which.
-  The model chooses *what* to do, and code decides *whether that is allowed now*.
-- **Dependency injection.** The model (`llm.Client`), its tokenizer (`llm.TokenCounter`),
+- **Deterministic control.** A code guard (`Guard`) filters messages first.
+- **Decision Model.** A decision model (`llm.Decider`) picks tools from options, answers enums, yes/no questions, injection checks, and critic validation. It never generates free-form text.
+- **Dependency injection.** The decision model (`llm.Decider`), writer (`llm.Client`), its tokenizer (`llm.TokenCounter`),
   memory (`MemoryStore`) and tools are interfaces. `New(cfg)` is the only place concrete
   types meet.
 - **One concern per repository.** The agent orchestrates. Deciding what the model sees is
@@ -37,25 +36,25 @@ flowchart TD
     UI[UI thread<br/>small TinyGo binary: the page] -->|user text| W[Web Worker<br/>TinyGo binary]
     W --> AG[agent.Run]
     AG --> CTX[agentcontext<br/>compile the request]
-    AG --> M[llm.Client<br/>in-browser model runtime]
+    AG --> M[llm.Decider / llm.Client<br/>in-browser model runtime]
     AG --> MEM[agentmemory<br/>IndexedDB]
     AG --> T[tools<br/>local Go or MCP servers]
     W -->|answer text| UI
 ```
 
-The whole agent, including the model, memory and search, runs in one Web Worker. The page
+The whole agent, including the models, memory and search, runs in one Web Worker. The page
 itself stays a small binary that only sends text and shows the answer. A long inference then
-never freezes the UI, and the page does not download model code before it can render. How the
-worker and the model runtime are built is an open decision in the
-[ecosystem master plan](AGENT_ECOSYSTEM_MASTER_PLAN.md).
+never freezes the UI, and the page does not download model code before it can render.
 
 ## Components
 
 | Component | File(s) | Responsibility |
 |---|---|---|
-| Constructor | `agent.go` | validates `Config`, applies defaults, connects tools. It is the only wiring point |
-| Orchestrator | `orchestrator.go`, `turn.go` | the ReAct + reflection loop, memory I/O, calls to the models |
-| FSM | `fsm.go` | valid state transitions |
+| Constructor | `agent.go` | validates `Config`, applies defaults, connects tools, checks templates. It is the only wiring point |
+| Turn execution | `turn.go` | drives the hybrid flow, memory I/O, tool execution, route, and answer resolution |
+| Code guard | `guard.go` | cleans text, checks character limits, chat markers, system roles, and phrase rules |
+| Decision helper | `decide.go` | questions sent to `llm.Decider` (routing, injection, yes/no, enums, critic) |
+| Tool arguments | `arguments.go` | constructs JSON inputs for tools from `InputSchema` using enums or raw message string |
 | Tool registry | `mcp_registry.go`, `mcp_client.go`, `mcp_json.go` | merges local tools, in-process MCP handlers and remote MCP servers |
 | Memory ports | `interfaces.go` | `ConversationStore`, `SummaryStore`, `KnowledgeStore`, `ToolLogStore` |
 | Reference memory | `mem_memory.go` | in-memory `MemoryStore` for tests and demos (no persistence) |
@@ -63,25 +62,15 @@ worker and the model runtime are built is an open decision in the
 
 Value types: [TYPES.md](TYPES.md).
 
-## The loop
+## The turn
 
-1. `Run` stores the user's message as a `Turn`.
-2. **Reasoning:** load recent turns and summaries. If they no longer fit the budget, summarize
-   the oldest ones (`agentcontext.Compact`). Then build the request (`agentcontext.Compile`)
-   and call the primary model.
-3. **Acting:** if the model asked for tools (`llm.StopToolUse`), run them. Errors become
-   observations the model can correct from, not failures.
-4. **Reflecting:** when the model answers (`llm.StopEndTurn`), a second, cheap call judges the
-   answer `SUFFICIENT` or `INSUFFICIENT`. An insufficient answer goes back to reasoning with the
-   critique.
-5. **Responding:** return the answer. `MaxIterations` and `MaxRetries` bound the loop. A model
-   cut off at its output limit (`llm.StopMaxTokens`) returns an explicit error.
+1. **Guard check:** `Guard.check(msg)` cleans invisible characters and checks length limits, chat markers, system role lines, and forbidden phrases. If flagged, returns `Texts.Refused` or `Texts.TooLong`.
+2. **Routing:** `ToolIndex` selects candidate tools. `llm.Decider` chooses the best fitting tool or "none".
+3. **Arguments:** Arguments are constructed deterministically or via enum decisions.
+4. **Safety & Confirmation:** If the tool modifies data (not read-only), an injection check runs. If clear, the tool call is put on hold as `Reply.Pending` for user `Confirm` or `Decline`.
+5. **Tool execution & Answer:** Read-only tools run directly. The answer is obtained from yes/no fact reasoning, template matching, optional writer generation (`llm.Client`) with critic review, or raw data output (`Texts.Found`).
 
-Diagrams: [ReAct flow](diagrams/REACT_FLOW.md) · [FSM](diagrams/FSM_STATE.md) ·
-[MCP client](diagrams/MCP_CLIENT_FLOW.md) · [memory](diagrams/MEMORY_ARCHITECTURE.md) ·
-[system context](diagrams/SYSTEM_CONTEXT.md) · [tool search](diagrams/TOOL_SEARCH.md) · [integration scenario](diagrams/INTEGRATION_SCENARIO.md).
-The context window, step by step, is documented where the logic lives:
-[`agentcontext/docs/diagrams/CONTEXT_WINDOW.md`](https://github.com/webtyp/agentcontext/blob/main/docs/diagrams/CONTEXT_WINDOW.md).
+Diagrams: [MCP client](diagrams/MCP_CLIENT_FLOW.md) · [memory](diagrams/MEMORY_ARCHITECTURE.md) · [system context](diagrams/SYSTEM_CONTEXT.md).
 
 ## Contracts
 
@@ -112,24 +101,15 @@ type Tool interface {
 	Name() string
 	Description() string
 	InputSchema() string
+	Action() model.Action
 	Execute(ctx *context.Context, argsJSON string) (string, error)
 }
 type MCPServer interface{ URL() string }
 ```
 
-The model contract (`llm.Client`, `llm.TokenCounter`) is in
-[`webtyp/llm`](https://github.com/webtyp/llm). `SearchKnowledge` takes **text**, never a
-vector. Turning text into a vector is the memory implementation's job.
-
 ## Loops a small model falls into
 
-Measured with Qwen3.5-2B (2026-09-30): asked a question with an injected instruction, the model
-called `list_business_hours` with the same arguments on every step until `MaxIterations` ran out,
-and the person got no answer. Two rules stop that:
-
-- A call with the same tool and the same arguments as one already run in this turn is not run
-  again; its result tells the model it already has the data and should answer.
-- The last allowed step offers no tools, so the model must answer with what it has.
+In hybrid mode, generative loops are avoided by design because routing and argument selection are controlled by deterministic code and bounded options evaluated by `llm.Decider`.
 
 ## Confirmation before tools that modify
 
@@ -145,10 +125,6 @@ if len(reply.Pending) > 0 {
 
 If the user typed a new query instead of confirming, calling `Run` automatically declines the pending actions before processing the new query.
 
-Only a tool the model was **offered** in this run can wait for confirmation. A call to a tool it
-was never offered (for example, one named in text an attacker planted in a patient's record) is
-refused like any undiscovered tool, so it never reaches the person as something to confirm.
-
 ## Tools
 
 Three sources are merged at construction:
@@ -158,25 +134,3 @@ Three sources are merged at construction:
 | Local | `LocalTools []Tool` | direct Go call | pure functions, internal state |
 | Handler | `MCPHandlers []MCPServer` | JSON-RPC 2.0 to `URL()` | MCP servers running in the same process |
 | Remote | `MCPServers []string` | JSON-RPC 2.0 over HTTP | external MCP servers |
-
-**Tool search:** The model is not shown every tool. Each step offers `search_tools(query)` plus
-the tools discovered so far in this `Run`. When the model searches, a `ToolIndex` (a port:
-`NewMemToolIndex` here ranks by keywords, and `webtyp/agentmemory` ranks by meaning over
-`webtyp/retrieval`) returns the matching tools. Those tools become callable **directly**,
-with their real JSON Schema, so the model runtime can constrain the arguments. A tool that was
-not discovered is refused. This keeps the request small for a small model. The reasoning is in
-[`agentcontext/docs/CONTEXT_ENGINEERING.md`](https://github.com/webtyp/agentcontext/blob/main/docs/CONTEXT_ENGINEERING.md),
-and the flow is in [TOOL_SEARCH](diagrams/TOOL_SEARCH.md).
-
-## Voice (version 2)
-
-Version 1 is text only. In version 2 the **application** wraps the agent, and the agent's
-input and output stay text:
-
-```mermaid
-flowchart TD
-    Mic[webtyp/media<br/>microphone] -->|audio.PCM| STT[webtyp/stt<br/>Transcriber]
-    STT -->|text| Run[agent.Run]
-    Run -->|text| TTS[webtyp/tts<br/>Synthesizer]
-    TTS -->|audio.PCM| Out[playback]
-```
