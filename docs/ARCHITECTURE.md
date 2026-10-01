@@ -121,6 +121,16 @@ The model contract (`llm.Client`, `llm.TokenCounter`) is in
 [`webtyp/llm`](https://github.com/webtyp/llm). `SearchKnowledge` takes **text**, never a
 vector. Turning text into a vector is the memory implementation's job.
 
+## Loops a small model falls into
+
+Measured with Qwen3.5-2B (2026-09-30): asked a question with an injected instruction, the model
+called `list_business_hours` with the same arguments on every step until `MaxIterations` ran out,
+and the person got no answer. Two rules stop that:
+
+- A call with the same tool and the same arguments as one already run in this turn is not run
+  again; its result tells the model it already has the data and should answer.
+- The last allowed step offers no tools, so the model must answer with what it has.
+
 ## Confirmation before tools that modify
 
 When the model decides to call a tool that alters data (any tool whose action is not `model.Read`), the agent pauses execution before calling the tool and returns the pending tool calls in `Reply.Pending`. The calling application presents these calls to the user for explicit confirmation or rejection:

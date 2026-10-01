@@ -141,6 +141,7 @@ func (a *Agent) loop(ctx *context.Context, sessionID, userQuery string, offered 
 	iterations := 0
 	actingFailures := 0
 	retried := false
+	var ran []llm.ToolCall // calls executed in this loop, to refuse an identical repeat
 
 	a.fsm.current = StateIdle
 	if err := a.fsm.transition(StateReasoning); err != nil {
@@ -150,7 +151,13 @@ func (a *Agent) loop(ctx *context.Context, sessionID, userQuery string, offered 
 	for iterations < a.cfg.MaxIterations {
 		iterations++
 
-		req, err := a.request(ctx, sessionID, offered)
+		// The last step offers no tools: the model has to answer with what it already has
+		// instead of running out of iterations mid-search.
+		tools := offered
+		if iterations == a.cfg.MaxIterations {
+			tools = nil
+		}
+		req, err := a.request(ctx, sessionID, tools)
 		if err != nil {
 			return Reply{}, fmt.Errf("failed to prepare context: %w", err)
 		}
@@ -226,10 +233,19 @@ func (a *Agent) loop(ctx *context.Context, sessionID, userQuery string, offered 
 			}
 
 			for _, call := range resp.ToolCalls {
+				if call.Name != searchToolsName && ranBefore(ran, call) {
+					// A small model can call the same tool with the same arguments over and over.
+					// The result is already in the conversation: say so instead of running it again.
+					if err := a.storeToolResult(ctx, sessionID, call, fmt.Sprintf(repeatedCallResult, call.Name)); err != nil {
+						return Reply{}, err
+					}
+					continue
+				}
 				failed, err := a.runCall(ctx, sessionID, call, &offered)
 				if err != nil {
 					return Reply{}, err
 				}
+				ran = append(ran, call)
 				if failed {
 					actingFailures++
 				} else {
@@ -352,4 +368,23 @@ func isOffered(offered []llm.ToolDef, name string) bool {
 		}
 	}
 	return false
+}
+
+// ranBefore reports whether calls already holds a call with the same tool and the same arguments.
+func ranBefore(calls []llm.ToolCall, call llm.ToolCall) bool {
+	for _, c := range calls {
+		if c.Name == call.Name && fmt.TrimSpace(c.Input) == fmt.TrimSpace(call.Input) {
+			return true
+		}
+	}
+	return false
+}
+
+// storeToolResult stores content as the result of call without running the tool.
+func (a *Agent) storeToolResult(ctx *context.Context, sessionID string, call llm.ToolCall, content string) error {
+	turn := a.newTurn(llm.Message{Role: llm.RoleTool, Content: content, ToolName: call.Name, ToolCallID: call.ID})
+	if err := a.mem.AppendTurn(ctx, sessionID, turn); err != nil {
+		return fmt.Errf("failed to save tool turn: %w", err)
+	}
+	return nil
 }
