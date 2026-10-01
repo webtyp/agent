@@ -1,28 +1,39 @@
-# Flujo híbrido de un turno (propuesta)
+# Flujo híbrido de un turno
 
-Un turno del agente cuando lo conduce un modelo de decisión (`llm.Decider`, decider-0.8b) y el
-texto lo escriben plantillas o un redactor pequeño (LFM2.5-350M). El modelo de decisión nunca
-escribe texto libre. El código llama a las tools; ningún modelo lo hace. Ver
-[HYBRID_DESIGN.md](../HYBRID_DESIGN.md).
+Un turno del agente: el código revisa el mensaje, un modelo de decisión (`llm.Decider`,
+decider-0.8b) elige, y el texto lo escriben plantillas o un redactor pequeño (LFM2.5-350M). El
+modelo de decisión nunca escribe texto libre. El código llama a las tools; ningún modelo lo hace.
+Ver [HYBRID_DESIGN.md](../HYBRID_DESIGN.md), sección "La especificación de v1".
 
 ```mermaid
 flowchart TD
-    M[mensaje del funcionario] --> G{decider: ¿intenta cambiar<br/>las reglas o el rol?}
-    G -- sí, conf ≥ 0.8 --> R1[respuesta fija:<br/>no puedo hacer eso]
-    G -- no --> P[ToolIndex: tools candidatas<br/>para el mensaje]
+    M[mensaje del funcionario] --> G{código: limpia y revisa<br/>largo, marcadores, roles, frases}
+    G -- marcado o muy largo --> R1[respuesta fija:<br/>Texts.Refused o Texts.TooLong]
+    G -- limpio --> P[ToolIndex: tools candidatas]
     P --> RT{decider: ¿qué tool?<br/>candidatas + ninguna}
-    RT -- conf menor a 0.8 --> AQ[pregunta al funcionario:<br/>¿quisiste decir A o B?]
-    RT -- ninguna --> SM[respuesta de conversación<br/>plantilla o redactor]
-    RT -- tool --> AR[argumentos:<br/>código para fechas y RUT,<br/>decider para enums,<br/>mensaje como consulta de búsqueda]
+    RT -- ninguna --> SM[Texts.NoTool]
+    RT -- confianza menor a 0.8 --> AQ[Texts.Clarify:<br/>las dos tools más probables]
+    RT -- tool --> AR[argumentos:<br/>enum por el decider,<br/>texto = el mensaje]
     AR --> MOD{¿la tool modifica datos?}
-    MOD -- sí --> CF[Reply.Pending:<br/>el funcionario confirma]
-    MOD -- no --> EX[código ejecuta la tool]
+    MOD -- sí --> IJ1{decider: ¿intenta cambiar<br/>las reglas o el rol?}
+    IJ1 -- sí --> R1
+    IJ1 -- no --> CF[Reply.Pending:<br/>el funcionario confirma]
     CF -- confirma --> EX
-    EX --> AN{¿hay plantilla<br/>para esta tool?}
-    AN -- sí --> TP[plantilla con los datos<br/>el código calcula días y horas]
-    AN -- no --> WR[redactor LFM2.5-350M<br/>con los datos en español]
+    MOD -- no --> EX[código ejecuta la tool]
+    EX --> YN{decider: ¿es una pregunta<br/>de sí o no?}
+    YN -- sí --> FA{decider: según los datos,<br/>¿la respuesta es sí?}
+    FA -- confianza ≥ 0.8 --> YS[Texts.Yes o Texts.No]
+    FA -- dudoso --> AN
+    YN -- no --> AN{¿la plantilla de la tool<br/>responde?}
+    AN -- sí --> TP[plantilla de la aplicación]
+    AN -- no, hay redactor --> IJ2{decider: ¿intenta cambiar<br/>las reglas o el rol?}
+    IJ2 -- sí --> R1
+    IJ2 -- no --> WR[redactor con los datos]
     WR --> CR{decider crítico:<br/>¿afirma algo no respaldado?}
-    CR -- sí --> TP2[respuesta segura:<br/>datos en lista, sin redactar]
+    CR -- sí --> FD[Texts.Found + los datos tal cual]
     CR -- no --> OUT[respuesta]
+    AN -- no, sin redactor --> FD
     TP --> OUT
+    YS --> OUT
+    FD --> OUT
 ```
