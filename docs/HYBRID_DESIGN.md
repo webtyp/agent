@@ -36,7 +36,7 @@ cuando hace falta redactar. El flujo completo está en
 | decider-0.8b | implementa `llm.Decider` en el navegador | runtime Qwen3.5 (`qwen` + `decoder`) | arquitectura soportada; falta leer la respuesta por letras y los pesos de 4 bits |
 | LFM2.5-350M | redactor: `llm.Client` | runtime nuevo (`lfm`) + `decoder` | falta: capas de convolución corta de LFM2 |
 | flujo híbrido | ordena las decisiones de un turno | `webtyp/agent` | publicado (v1.0.0) |
-| plantillas | respuestas a preguntas conocidas | la aplicación (Jose) | por diseñar (D3) |
+| plantillas | respuestas a preguntas conocidas | la aplicación (Cote) | por diseñar (D3) |
 | crítico | `Config.Critic llm.Decider` | `webtyp/agent` | publicado (v0.8) |
 | confirmación | `Reply.Pending` + `Confirm`/`Decline` | `webtyp/agent` | publicado (v0.8) |
 
@@ -79,7 +79,7 @@ cuando haya un caso que (a) no resuelva.
 
 ### D3 — ¿Dónde están las plantillas de respuesta?
 
-- **(a)** En la aplicación (Jose), una por tool: `"Hoy {día} atendemos de {opens} a {closes}."`.
+- **(a)** En la aplicación (Cote), una por tool: `"Hoy {día} atendemos de {opens} a {closes}."`.
 - **(b)** En el módulo, junto a la operación (como `Describe`).
 
 **Decidido: (a).** El tono y el idioma son de la aplicación: el mismo módulo de calendario
@@ -181,7 +181,7 @@ están en inglés porque así se midieron.
 
 - La memoria (`agentmemory`), el registro de tools, la preselección y `Reply.Pending` con
   confirmación se mantienen.
-- Los escenarios de Jose en `agenteval` miden el resultado con el mismo `Scenario` y otro
+- Los escenarios de Cote en `agenteval` miden el resultado con el mismo `Scenario` y otro
   constructor de agente. Cambia uno: la inyección directa ahora se rechaza (D7) y ya no responde
   la pregunta que trae dentro.
 
@@ -192,6 +192,6 @@ están en inglés porque así se midieron.
 2. `agenteval`: un `Env.Decider` sobre `llama-server` con decider-0.8b, para medir antes de tener
    todo en el navegador.
 3. `agent`: `NewHybrid` (D1), con argumentos (D2) y decisiones (D5).
-4. Jose: plantillas (D3) y medición de sus escenarios.
+4. Cote: plantillas (D3) y medición de sus escenarios.
 5. Pesos de 4 bits (D6) y el runtime de LFM2.5-350M (`lfm`), en paralelo, porque no bloquean la
    medición del paso 4.

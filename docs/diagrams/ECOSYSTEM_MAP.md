@@ -15,10 +15,10 @@ Los colores indican el estado de cada repositorio:
 
 Las secciones 0, 4 y 5 son **propuestas pendientes de decisión**.
 
-## 0. Lo que ve Jose (la aplicación)
+## 0. Lo que ve Cote (la aplicación)
 
-Jose es el asistente del consultorio María Josefa. Su código solo debe **configurar**: quién es
-Jose (el prompt), con qué servidor de tools habla y qué modelo usa. `agent` no puede elegir por
+Cote es el asistente del consultorio María Josefa. Su código solo debe **configurar**: quién es
+Cote (el prompt), con qué servidor de tools habla y qué modelo usa. `agent` no puede elegir por
 sí mismo el modelo ni la memoria: es una librería que también debe servir para otras
 aplicaciones, otros modelos y servidores. Alguien tiene que crear esas piezas concretas y
 entregárselas. Ese "alguien" es una pieza reutilizable que arma el agente dentro de un Web
@@ -26,11 +26,11 @@ Worker, y así cada aplicación no repite el mismo armado.
 
 ```mermaid
 flowchart TD
-    JOSE[Jose: config<br/>prompt + reglas + URL MCP de mjosefa-cms] --> AW[agentworker<br/>arma el agente en un Web Worker]
+    JOSE[Cote: config<br/>prompt + reglas + URL MCP de mjosefa-cms] --> AW[agentworker<br/>arma el agente en un Web Worker]
     AW --> AGENT[agent<br/>orquesta: decide, llama tools, responde]
     AW --> MODEL[modelo: qwen]
     AW --> MEMORY[memoria: agentmemory]
-    AGENT --> CMS[mjosefa-cms por MCP<br/>horarios, reservas, pacientes<br/>con los permisos del rol de Jose]
+    AGENT --> CMS[mjosefa-cms por MCP<br/>horarios, reservas, pacientes<br/>con los permisos del rol de Cote]
     classDef proposal fill:#1565c0,color:#fff
     class AW proposal
 ```
@@ -43,7 +43,7 @@ máquina del desarrollador, nunca en el navegador.
 
 ```mermaid
 flowchart TD
-    APP[Jose<br/>la aplicación, hoy mjosefa-cora] --> AGENT[agent v0.6<br/>orquestador: bucle ReAct, FSM, tools]
+    APP[Cote<br/>la aplicación, hoy mjosefa-cora] --> AGENT[agent v0.6<br/>orquestador: bucle ReAct, FSM, tools]
     APP --> AM[agentmemory<br/>memoria del agente en IndexedDB]
     APP --> JS[js v0.0.11<br/>Web Worker]
     AGENT --> AC[agentcontext v0.1<br/>compila lo que ve el modelo]
@@ -78,7 +78,7 @@ es solo texto. Sus contratos ya están publicados.
 
 ## 2. Qué pasa con un mensaje
 
-Un funcionario le escribe a Jose "¿hasta qué hora atendemos hoy?". La página solo dibuja. El modelo corre en un
+Un funcionario le escribe a Cote "¿hasta qué hora atendemos hoy?". La página solo dibuja. El modelo corre en un
 *Web Worker*, un hilo aparte del navegador, para que la página no se congele mientras el modelo
 piensa.
 

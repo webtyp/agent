@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-10-01 · hybrid agent specified (D24, D26); lfm v0.1.0 running; agent v1.0.0 plan written, waiting for review; decision prefix kept across sessions (decoder v0.5.1, qwen v0.4.4)
+> **Status:** IN PROGRESS · 2026-10-01 · PRs ready for review: agent v1.0.0 (#16), opfs v0.1.0 (#1); published: lfm v0.1.2 (writer), qwen v0.4.5, tokenizer v0.4.2 (`Stream`), decoder v0.5.1; the assistant is now **Cote** (`veltylabs/mjosefa-cote`)
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -7,6 +7,34 @@ Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/
 it reuses its stack (`embed`, `vectordb`, `tokenizer`, `encoder`, `weights`, `weightsc`) and
 changed one of its contracts (`embed.Embedder` gained `CountTokens`). It is independent of every
 other wave in the index.
+
+## Start here (next session)
+
+This page is the context of the agent wave. The PWA and device work (capabilities, shell cache,
+heavy artifacts) is a **separate wave**:
+[app/docs/PWA_ARTIFACTS_MASTER_PLAN.md](https://github.com/webtyp/app/blob/main/docs/PWA_ARTIFACTS_MASTER_PLAN.md),
+with its open decisions answered in `app/docs/PLAN_DRAFT.md`. Do not mix the two.
+
+In order:
+
+1. **Review `agent` v1.0.0** — PR [webtyp/agent#16](https://github.com/webtyp/agent/pull/16).
+   `cd agent && codejob` checks it out; the spec is `docs/PLAN.md` on that branch and
+   [HYBRID_DESIGN.md](HYBRID_DESIGN.md). Check: the question texts to the decider match the
+   measured ones word for word; the guard runs before any model; the injection question only on
+   risky turns; every deleted symbol is gone. This working tree carries uncommitted doc edits
+   (this page, HYBRID_DESIGN, ECOSYSTEM_MAP: the Cote rename) that `codejob` stashes and
+   re-applies; commit them with the review. `tinygo build -target wasm -o /dev/null .` fails on
+   any non-main package, which is a tooling limit, not a defect.
+2. **Review `opfs` v0.1.0** — PR [webtyp/opfs#1](https://github.com/webtyp/opfs/pull/1); tests
+   run in the browser (`GOOS=js GOARCH=wasm go test -exec wasmbrowsertest ./...`).
+3. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
+   WASM): `weights` `Int4Block32` (Q4_0 layout: 16 bytes per 32 values, low nibble = values 0–15,
+   high = 16–31, value = (nibble − 8) × scale, float32 scales like `Int8Block32`) → `nn`
+   `MatVecQ4Block32` (int4 weights × int8 activations, two rows at a time) and `weightsc`
+   `-quant int4-block32` → `decoder` `matrix` reads it. Then measure decider-0.8b int4 on the 36
+   questions (must stay ≥ 32/36) and its size and speed in WASM.
+4. Plans for `agenteval` (decider and writer in `Env`) and `mjosefa-cote` (texts, templates,
+   guard phrases, the direct-injection scenario now expects a refusal), after agent v1.0.0.
 
 ## What this is
 
@@ -20,8 +48,8 @@ message first, a small **decision model** (decider-0.8b) picks among given optio
 yes or no), code runs the tools, and the answer comes from the application's templates or, when
 phrasing is needed, a small **writer** model (LFM2.5-350M). No model writes a tool call.
 
-The first application is **Jose**, the assistant of Consultorio María Josefa
-(`veltylabs/mjosefa-jose`): it runs in each staff member's browser, with that person's
+The first application is **Cote**, the assistant of Consultorio María Josefa
+(`veltylabs/mjosefa-cote`): it runs in each staff member's browser, with that person's
 permissions, on PCs that can have as little as 4 GB of RAM.
 
 You need this page when you are about to change any repository in the table below and want to
@@ -31,28 +59,28 @@ know what depends on what, what is decided, and what comes next.
 
 | Repository | One concern | Kind | Version |
 |---|---|---|---|
-| `agent` | the orchestrator: the hybrid turn, tool registry, confirmation, memory ports | orchestrator | v0.10.8 (ReAct); **v1.0.0 plan written** |
+| `agent` | the orchestrator: the hybrid turn, tool registry, confirmation, memory ports | orchestrator | v0.10.9 (ReAct); **v1.0.0 in review** |
 | `agenteval` | scenarios in Go run N times against local models; deterministic checks + judge (decider-4b) | tool (host only) | v0.2.7 |
 | `llm` | contract with a model: `Client`, `Streamer`, `TokenCounter`, `Decider` | contract | v0.2.2 |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Stamp` | pure library | v0.3.1 |
 | `agentmemory` | agent ports over `orm` + `ddl`; `ToolIndex` by meaning (bekko) | implementation | v0.3.2 |
-| `qwen` | Qwen3.5 family: `llm.Client` and **`llm.Decider`** (decider-0.8b), prefix caches | implementation | v0.4.4 |
-| `lfm` | LFM2 family: LFM2.5-350M as the **writer** (`llm.Client`, no tools) | implementation | v0.0.1; v0.1.0 running |
+| `qwen` | Qwen3.5 family: `llm.Client` and **`llm.Decider`** (decider-0.8b), prefix caches | implementation | v0.4.5 |
+| `lfm` | LFM2 family: LFM2.5-350M as the **writer** (`llm.Client`, no tools) | implementation | v0.1.2 |
 | `decoder` | causal decoder: Qwen3.5 (DeltaNet + attention) and LFM2 (short conv + attention) | implementation | v0.5.1 |
 | `nn` | stateless kernels; `MatVecQ8Block32` (int8×int8), SIMD and performance findings | pure library | v0.4.2 |
-| `tokenizer` | BPE + schemes (`QwenScheme`, `Lfm2Scheme`, …), `ParseMerges` | implementation | v0.4.1 |
+| `tokenizer` | BPE + schemes (`QwenScheme`, `Lfm2Scheme`, …), `ParseMerges`, `Stream` (whole UTF-8 characters) | implementation | v0.4.2 |
 | `weights`, `weightsc` | artifact format (`Int8Block32`) and checkpoint → artifact converter | format, tool | v0.2.0 |
 | `json` | JSON without reflection; `Keys` for objects whose names are data | implementation | v0.5.27 |
 | `mcp` | MCP server and client; `tools/list` announces read-only tools and descriptions | implementation | v0.2.39 |
 | `router` | the app's routes; `Describe` on operations (what tools say about themselves) | implementation | v0.3.1 |
 | `embed`, `bekko`, `encoder` | embedding contract, the bekko model, the encoder graph | contract, implementations | v0.4.0, v0.1.9, v0.2.4 |
 | `files` | whole-file contract: `Reader`, `Writer`, `Appender`, conformance, `mem` | contract | v0.0.2 |
-| `opfs` | browser implementation of `files` (OPFS in a Worker) | implementation | v0.0.1 (docs) |
+| `opfs` | browser implementation of `files` (OPFS, chunked async API, page and Worker) | implementation | v0.1.0 in review |
 | `js` | the framework's JS API; Web Workers run their own binary | framework | v0.0.11 |
 | `retrieval`, `vector`, `vectordb` | chunking and search; vector math; document store | implementations | v0.0.1, v0.1.1, v0.2.4 |
 | `audio`, `stt`, `tts`, `phoneme` | voice (version 2) | contracts, implementation | v0.1.0, v0.1.0, v0.0.2, v0.0.1 |
 | `kvdb`, `pdf` | other `files` consumers | implementations | v0.1.2, v0.1.14 |
-| `agentworker`, `agentlab` | the agent inside a Web Worker; a GUI to tune prompts and see scores | accepted, not created | — |
+| `agentworker`, `agentlab` | the agent inside a Web Worker; a GUI to tune prompts and see scores (a webtyp app made with `webtyp dev`, its test chat on `layout/chatview`) | accepted, not created | — |
 
 A **contract** repository holds interfaces and value types only. An implementation lives in its
 own repository, so importing a contract never adds a model to a binary.
@@ -63,7 +91,7 @@ Arrows point from the importer to what it imports. There are no cycles.
 
 ```mermaid
 flowchart TD
-    APP[application: Jose] --> AGENT[agent]
+    APP[application: Cote] --> AGENT[agent]
     APP --> AM[agentmemory]
     APP --> QWEN[qwen: decider]
     APP --> LFM[lfm: writer]
@@ -91,14 +119,15 @@ flowchart TD
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| running | `lfm` v0.1.0 | LFM2.5-350M as the writer; tested on a tiny checkpoint with the real vocabulary | Jules |
-| review | `agent` v1.0.0 | the hybrid turn (D24, D26) replaces ReAct; plan in `agent/docs/PLAN.md` | the user's review, then dispatch |
+| review | `agent` v1.0.0 | the hybrid turn (D24, D26) replaces ReAct — PR #16 | planning agent's review |
+| review | `opfs` v0.1.0 | OPFS as `files.ReadWriter` + `Appender`, chunked async API — PR #1 | planning agent's review |
 | to write | `agenteval` | `Env.Decider`, `Env.Writer`; drop `Env.Model`, `Env.Critic`, `Env.Budget` | agent v1.0.0 |
-| to write | `mjosefa-jose` | `Texts`, `Templates`, `Guard.Phrases`; the direct-injection scenario expects a refusal (D26) | agent v1.0.0, agenteval |
-| to write | `agentworker` (new) | build the agent in a Web Worker: weights and the decision cache from OPFS | `opfs`, agent v1.0.0 |
-| to write | `weights` + `weightsc` + `nn` + `decoder` | 4-bit blocks (D6 of HYBRID_DESIGN) | — |
-| to write | `app` + `js` | three tiers by feature test: plain WASM, SIMD128, WebGPU (D25) | — |
-| later | `qwen`, `lfm` | one shared prefix cache instead of one per model family | lfm v0.1.0 |
+| to write | `mjosefa-cote` | `Texts`, `Templates`, `Guard.Phrases`; the direct-injection scenario expects a refusal (D26) | agent v1.0.0, agenteval |
+| to write | `agentworker` (new) | build the agent in a Web Worker: weights and the decision cache from OPFS; device tier and downloads per [app/docs/PWA_ARTIFACTS_MASTER_PLAN.md](https://github.com/webtyp/app/blob/main/docs/PWA_ARTIFACTS_MASTER_PLAN.md) | `opfs`, agent v1.0.0, that plan's phases 1–2 |
+| next, local | `weights` + `weightsc` + `nn` + `decoder` | 4-bit blocks (D6 of HYBRID_DESIGN), see "Start here" | — |
+| moved | `device`, `app`, `js` | tier detection by feature test (D25) now belongs to the PWA wave (`webtyp/device`) | PWA master plan |
+| later | `qwen`, `lfm` | one shared prefix cache instead of one per model family (`lfm` has none yet) | — |
+| later | `nn`, `decoder` | profile the scalar remainder under WASM (SIMD gives 2× end to end, not the kernel's 4.3×) | — |
 | later | `agent` | narrow `MemoryStore` (summaries, knowledge unused in v1); dates and RUT arguments by code (D2) | agent v1.0.0 |
 
 ## Decisions
@@ -123,7 +152,8 @@ flowchart TD
   4 GB machines (HYBRID_DESIGN D6: decider Q4 529 MB + writer ≈ 230 MB).
 - **D15 — `gonew` and `codejob`** take the module prefix from a neighbor repository and retry a
   new repository not ready yet; the dispatch prompt forbids questions and frontmatter edits
-  (devflow v0.4.116).
+  (devflow v0.4.116); closing a plan always pushes the PR branch first, so review corrections
+  already committed are not lost (devflow v0.4.119).
 - **D16 — SIMD is adopted when it gives ≥ 2×.** The Worker ships a SIMD and a plain binary.
 - **D17 — `webtyp/files` is the whole-file contract**, with conformance and `mem`.
 - **D19 — Every model plan ships its own verification data**: a tiny random model of the same
@@ -133,9 +163,9 @@ flowchart TD
 - **D22 — Tools that modify wait for the person.** Read-only only when `Action() == model.Read`
   or MCP `readOnlyHint`; otherwise `Reply.Pending` and `Confirm`/`Decline`. The pending state is
   the last assistant turn in memory, so it survives a reload.
-- **D23 — Security is code, not prompt.** Typed control tokens stay text (`qwen`, `lfm`), Jose has
+- **D23 — Security is code, not prompt.** Typed control tokens stay text (`qwen`, `lfm`), Cote has
   only the staff member's permissions, modifying tools wait for confirmation, no tool sends data
-  out. Injection scenarios live in `mjosefa-jose/evals`.
+  out. Injection scenarios live in `mjosefa-cote/evals`.
 - **D24 — The agent is hybrid, one form only** (2026-09-30). The decision model drives the turn;
   code computes and calls tools; templates in the application answer known questions;
   LFM2.5-350M writes when phrasing is needed. ReAct is removed. Every question to the decision

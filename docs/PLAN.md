@@ -18,7 +18,7 @@ SESSION: 13585612604721129454
   They are already written and correct. This plan implements them, step by step, with every
   name, text and rule fixed here.
 - This is a **breaking** change (v1.0.0). The generative ReAct loop is removed. The consumers
-  (`webtyp/agenteval`, `veltylabs/mjosefa-jose`) will break; **do not touch them**: each gets its
+  (`webtyp/agenteval`, `veltylabs/mjosefa-cote`) will break; **do not touch them**: each gets its
   own plan after this one.
 - Do **not** ask questions. If something in this plan cannot be done, write what and why in a
   section `## Executor notes` at the end of this file, do everything else, and open the PR.
@@ -88,7 +88,7 @@ Facts the plan relies on (all checked):
 3. **Complexity ledger.** Concepts: −ReAct loop, −FSM, −search_tools, −preselect, −summaries and
    compaction in the agent, −`LLMConfig`, −`Budget` in `Config`; +Texts, +Template, +Guard
    (+3, −7). Files to touch for a new answer: one template in the app (+0). Lines at the call
-   site: Jose's `New` grows by its texts (≈ +20), loses `LLMs`/`Budget`/`MaxIterations`
+   site: Cote's `New` grows by its texts (≈ +20), loses `LLMs`/`Budget`/`MaxIterations`
    (−6). Ways to do the same thing: **one** (the ReAct path is deleted, D1 a).
 4. **Where it belongs.** The turn's order of decisions is orchestration: `agent`. The decision
    model is behind `llm.Decider` (`webtyp/llm`); the writer behind `llm.Client`; the date line is
