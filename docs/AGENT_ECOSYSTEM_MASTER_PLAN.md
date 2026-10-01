@@ -97,7 +97,8 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
 | to write | `lfm` (new) | LFM2.5-350M as `llm.Client` (chat template, generation) | `decoder` v0.4.0, `tokenizer` v0.4.0 |
 | to write | `agent` v1.0.0 | the hybrid flow replaces ReAct (D1 a) | `qwen` v0.3.0 |
 | to write | `weights` + `nn` + `decoder` | 4-bit blocks (D6) | — |
-| to write | `nn` + `app` | SIMD kernels and the SIMD worker build (PERFORMANCE.md, step 1) | — |
+| to write | `decoder` v0.5.0 | use `nn.MatVecQ8Block32` (input quantized once per token); read prompt tokens without the output projection; logits for chosen rows only (decisions) | `decoder` v0.4.0 (LFM2) merged |
+| to write | `app` + `js` | three tiers chosen by feature test: plain WASM, SIMD128 WASM, WebGPU (PERFORMANCE.md) | — |
 
 ## Decisions already taken
 
@@ -174,6 +175,10 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
   staff member's permissions, modifying tools wait for confirmation (D22), and Jose has no tool
   that sends data out. Injection scenarios (direct and through data) live in `mjosefa-jose/evals`.
 
+- **D25 — Every device runs the agent; better hardware only makes it faster** (2026-10-01). Tier 1
+  plain WebAssembly, tier 2 SIMD128, tier 3 WebGPU, picked by feature test. The int8 kernel is an
+  integer dot product (`nn.MatVecQ8Block32`, 2.1× without SIMD, 4.3× with it), because the float
+  form could not be vectorized. Prompt tokens skip the output projection (34 % of a Qwen3.5 step).
 - **D24 — The agent is hybrid, one form only** (2026-09-30, `HYBRID_DESIGN.md`). A decision model
   (decider-0.8b Q4) drives every turn: injection check, tool choice, yes/no answers, critic. Code
   computes dates and calls tools, templates in the application answer known questions, and
