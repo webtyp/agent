@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-30 · hybrid design decided (HYBRID_DESIGN.md); running: decoder LFM2, qwen Decider, tokenizer Lfm2Scheme + IgnoreMerges, agentmemory semantic ToolIndex; perf audit in nn/docs/PERFORMANCE.md
+> **Status:** IN PROGRESS · 2026-10-01 · published: decoder v0.5.0 (LFM2, int8×int8 kernel, LogitsFor), qwen v0.4.0 (Decider), tokenizer v0.4.0 (Lfm2Scheme), agentmemory v0.3.0 (ToolIndex by meaning), nn v0.4.x; decider-0.8b in WASM+SIMD: 2.6 s per cached tool choice, 34/36 correct
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -90,15 +90,11 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| running | `decoder` v0.4.0 | LFM2 architecture (`Config.Arch`, `ShortConv`), fixture + numpy spec in `testdata/` | — |
-| running | `qwen` v0.3.0 | `llm.Decider` (decider-0.8b; schema-first for choices, state-first for yes/no) | — |
-| running | `tokenizer` v0.4.0 | `Lfm2Scheme`; `Scheme.IgnoreMerges` (fixes Qwen's 201 tokens and LFM2's typed control tokens) | — |
-| running | `agentmemory` v0.3.0 | `ToolIndex` by meaning (embeddings, in memory) | — |
-| to write | `lfm` (new) | LFM2.5-350M as `llm.Client` (chat template, generation) | `decoder` v0.4.0, `tokenizer` v0.4.0 |
-| to write | `agent` v1.0.0 | the hybrid flow replaces ReAct (D1 a) | `qwen` v0.3.0 |
+| to write | `lfm` (new) | LFM2.5-350M as `llm.Client` (chat template, generation); the real model already matches transformers 20/20 greedy in `decoder` v0.5.0 | — |
+| to write | `agent` v1.0.0 | the hybrid flow replaces ReAct (D1 a, D24) | — |
+| to write | `qwen` | save the tool-list prefix state to OPFS (first decision 22–44 s → load) | — |
 | to write | `weights` + `nn` + `decoder` | 4-bit blocks (D6) | — |
-| to write | `decoder` v0.5.0 | use `nn.MatVecQ8Block32` (input quantized once per token); read prompt tokens without the output projection; logits for chosen rows only (decisions) | `decoder` v0.4.0 (LFM2) merged |
-| to write | `app` + `js` | three tiers chosen by feature test: plain WASM, SIMD128 WASM, WebGPU (PERFORMANCE.md) | — |
+| to write | `app` + `js` | three tiers chosen by feature test: plain WASM, SIMD128 WASM, WebGPU (D25) | — |
 
 ## Decisions already taken
 
