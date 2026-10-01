@@ -3,7 +3,7 @@ module webtyp.com/agent
 go 1.26.8
 
 require (
-	webtyp.com/agentcontext v0.3.0
+	webtyp.com/agentcontext v0.3.1
 	webtyp.com/context v0.0.23
 	webtyp.com/fmt v1.0.0
 	webtyp.com/json v0.5.27
