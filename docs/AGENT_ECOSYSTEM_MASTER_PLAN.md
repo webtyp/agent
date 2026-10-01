@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-09-30 · agent v0.10.0 (loop guard); Qwen3.5-2B Q4_0 measured: Jose 9/10, 4/10, 9/10 (0.8B: 7/10, 0/10, 7/10); qwen prefix cache and business_calendar running
+> **Status:** IN PROGRESS · 2026-09-30 · hybrid design decided (HYBRID_DESIGN.md); running: decoder LFM2, qwen Decider, tokenizer Lfm2Scheme + IgnoreMerges, agentmemory semantic ToolIndex; perf audit in nn/docs/PERFORMANCE.md
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -90,13 +90,14 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| running | `qwen` v0.2.0 | prefix cache: read only what is new (open decision 4) | — |
-| running | `business_calendar` v0.4.0 | descriptions + readable hours (open decision 5) | — |
-| to decide | `mjosefa-jose` | which model: 0.8B int8 or 2B Q4_0 (open decision 6) | — |
-| to write | `qwen` | implement `llm.Decider` (letter probabilities, as the judge) | — |
-| to write | `opfs` | implements `files` in a Worker | — |
-| to write | `app` | SIMD + non-SIMD worker builds (`nn/docs/SIMD.md`) | — |
-| to write | `retrieval` | chunking | — |
+| running | `decoder` v0.4.0 | LFM2 architecture (`Config.Arch`, `ShortConv`), fixture + numpy spec in `testdata/` | — |
+| running | `qwen` v0.3.0 | `llm.Decider` (decider-0.8b; schema-first for choices, state-first for yes/no) | — |
+| running | `tokenizer` v0.4.0 | `Lfm2Scheme`; `Scheme.IgnoreMerges` (fixes Qwen's 201 tokens and LFM2's typed control tokens) | — |
+| running | `agentmemory` v0.3.0 | `ToolIndex` by meaning (embeddings, in memory) | — |
+| to write | `lfm` (new) | LFM2.5-350M as `llm.Client` (chat template, generation) | `decoder` v0.4.0, `tokenizer` v0.4.0 |
+| to write | `agent` v1.0.0 | the hybrid flow replaces ReAct (D1 a) | `qwen` v0.3.0 |
+| to write | `weights` + `nn` + `decoder` | 4-bit blocks (D6) | — |
+| to write | `nn` + `app` | SIMD kernels and the SIMD worker build (PERFORMANCE.md, step 1) | — |
 
 ## Decisions already taken
 
@@ -172,6 +173,12 @@ Published: `agent`, `agentmemory`, `agenteval`, `decoder`, `weightsc`, `tokenize
   person are text (`qwen`, tested), the model can only call offered tools (D12), Jose has only the
   staff member's permissions, modifying tools wait for confirmation (D22), and Jose has no tool
   that sends data out. Injection scenarios (direct and through data) live in `mjosefa-jose/evals`.
+
+- **D24 — The agent is hybrid, one form only** (2026-09-30, `HYBRID_DESIGN.md`). A decision model
+  (decider-0.8b Q4) drives every turn: injection check, tool choice, yes/no answers, critic. Code
+  computes dates and calls tools, templates in the application answer known questions, and
+  LFM2.5-350M writes when phrasing is needed. The generative ReAct loop is removed (D1 a).
+  Injection and tool choice stay two questions (merging them measured worse).
 
 ## Open decisions
 
