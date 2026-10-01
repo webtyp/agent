@@ -20,11 +20,11 @@ const (
 	criticQuestion    = "Does the assistant's answer state anything that the tool results do not support?"
 
 	wroteContext    = "%s wrote: %s"                   // Texts.Speaker, message
-	receivedContext = "Message received by %s: %s"       // Texts.Assistant, message
-	factsContext    = "%sData: %s\nQuestion asked: %s"  // agentcontext.Stamp(...), result, message
+	receivedContext = "Message received by %s: %s"     // Texts.Assistant, message
+	factsContext    = "%sData: %s\nQuestion asked: %s" // agentcontext.Stamp(...), result, message
 	criticContext   = "User asked: %s\nTool %s returned: %s\nAssistant answered: %s"
-	noneOption      = "none: %s"                        // Texts.NoToolOption
-	toolOption      = "%s: %s"                          // tool name, description
+	noneOption      = "none: %s" // Texts.NoToolOption
+	toolOption      = "%s: %s"   // tool name, description
 )
 
 var yesNo = []string{"no", "yes"} // index 1 is yes

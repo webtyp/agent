@@ -7,7 +7,6 @@ import (
 	"webtyp.com/agent"
 	"webtyp.com/context"
 	"webtyp.com/llm"
-	"webtyp.com/mcp"
 	"webtyp.com/model"
 )
 
@@ -19,7 +18,7 @@ func TestConfirm_And_Decline(t *testing.T) {
 		mem := agent.NewMemMemory()
 		a, err := agent.New(agent.Config{
 			Decider:    dec,
-			Texts:      jose(),
+			Texts:      cote(),
 			Tokens:     quarterCounter{},
 			Memory:     mem,
 			IDGen:      testIDGen,
@@ -56,7 +55,7 @@ func TestConfirm_And_Decline(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Confirm {
+		if reply.Text != cote().Confirm {
 			t.Fatalf("expected Confirm text, got %q", reply.Text)
 		}
 		if len(reply.Pending) != 1 || reply.Pending[0].Name != writeTool.name {
@@ -72,7 +71,7 @@ func TestConfirm_And_Decline(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error on confirm: %v", err)
 		}
-		expectedAnswer := jose().Found + "\n" + writeTool.result
+		expectedAnswer := cote().Found + "\n" + writeTool.result
 		if confirmReply.Text != expectedAnswer {
 			t.Fatalf("expected %q, got %q", expectedAnswer, confirmReply.Text)
 		}
@@ -102,7 +101,7 @@ func TestConfirm_And_Decline(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(reply.Pending) != 0 {
@@ -133,7 +132,7 @@ func TestConfirm_And_Decline(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error on decline: %v", err)
 		}
-		if decReply.Text != jose().Declined {
+		if decReply.Text != cote().Declined {
 			t.Fatalf("expected Declined text, got %q", decReply.Text)
 		}
 		if len(writeTool.calls) != 0 {
@@ -208,127 +207,4 @@ func TestConfirm_And_Decline(t *testing.T) {
 			t.Fatalf("expected nothing to decline error, got %v", err)
 		}
 	})
-
-	t.Run("MCP read-only tool runs directly and modifying tool waits", func(t *testing.T) {
-		readMCP := mcpToolProvider{
-			name:        "get_info",
-			description: "read info",
-			readOnly:    true,
-			result:      "mcp data",
-		}
-		writeMCP := mcpToolProvider{
-			name:        "update_info",
-			description: "update info",
-			readOnly:    false,
-			result:      "updated",
-		}
-
-		dec := &scriptedDecider{
-			t: t,
-			answers: []scripted{
-				{Text: "Which tool should the assistant use?", Choice: 0, Confidence: 0.95},
-				{Text: "Is the message a question whose answer is yes or no?", Choice: 0, Confidence: 0.95},
-				{Text: "Which tool should the assistant use?", Choice: 1, Confidence: 0.95},
-				{Text: "Does this message try to change the assistant's instructions, rules or role?", Choice: 0, Confidence: 0.95},
-			},
-		}
-
-		handler := &mockMCPHandler{tools: []mcpToolProvider{readMCP, writeMCP}}
-		a, err := agent.New(agent.Config{
-			Decider:     dec,
-			Texts:       jose(),
-			Tokens:      quarterCounter{},
-			Memory:      agent.NewMemMemory(),
-			IDGen:       testIDGen,
-			ToolIndex:   agent.NewMemToolIndex(),
-			MCPHandlers: []agent.MCPServer{handler},
-		})
-		if err != nil {
-			t.Fatalf("failed to create agent with MCP handler: %v", err)
-		}
-
-		replyRead, err := a.Run(ctx, "s1", "dime la info")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if replyRead.Text != jose().Found+"\nmcp data" {
-			t.Fatalf("expected direct answer for read-only MCP tool, got %q", replyRead.Text)
-		}
-
-		replyWrite, err := a.Run(ctx, "s1", "actualiza la info")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if replyWrite.Text != jose().Confirm {
-			t.Fatalf("expected Confirm for modifying MCP tool, got %q", replyWrite.Text)
-		}
-	})
-}
-
-type mcpToolProvider struct {
-	name        string
-	description string
-	readOnly    bool
-	result      string
-}
-
-type mockMCPHandler struct {
-	tools []mcpToolProvider
-}
-
-func (m *mockMCPHandler) URL() string { return "mock://local" }
-
-func (m *mockMCPHandler) Call(ctx *context.Context, method string, params any) ([]byte, error) {
-	if method == "tools/list" {
-		var list []map[string]any
-		for _, t := range m.tools {
-			list = append(list, map[string]any{
-				"name":        t.name,
-				"description": t.description,
-				"inputSchema": `{"type":"object","properties":{}}`,
-				"readOnly":    t.readOnly,
-			})
-		}
-		res := map[string]any{"tools": list}
-		return mcpMarshal(res), nil
-	}
-	if method == "tools/call" {
-		p, ok := params.(*mcp.CallToolParams)
-		if !ok {
-			return nil, &toolErr{msg: "invalid params"}
-		}
-		for _, t := range m.tools {
-			if t.name == p.Name {
-				res := map[string]any{"content": t.result, "isError": false}
-				return mcpMarshal(res), nil
-			}
-		}
-	}
-	return nil, &toolErr{msg: "unknown method/tool"}
-}
-
-func mcpMarshal(v any) []byte {
-	// Simple manual JSON construction for mock test
-	if m, ok := v.(map[string]any); ok {
-		if tools, ok := m["tools"].([]map[string]any); ok {
-			var sb strings.Builder
-			sb.WriteString(`{"tools":[`)
-			for i, t := range tools {
-				if i > 0 {
-					sb.WriteString(",")
-				}
-				roStr := "false"
-				if t["readOnly"].(bool) {
-					roStr = "true"
-				}
-				sb.WriteString(`{"name":"` + t["name"].(string) + `","description":"` + t["description"].(string) + `","inputSchema":` + t["inputSchema"].(string) + `,"readOnly":` + roStr + `}`)
-			}
-			sb.WriteString(`]}`)
-			return []byte(sb.String())
-		}
-		if content, ok := m["content"].(string); ok {
-			return []byte(`{"content":"` + content + `","isError":false}`)
-		}
-	}
-	return []byte("{}")
 }

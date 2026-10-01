@@ -17,7 +17,7 @@ func TestAnswer(t *testing.T) {
 		a, err := agent.New(agent.Config{
 			Decider:    dec,
 			Writer:     writer,
-			Texts:      jose(),
+			Texts:      cote(),
 			Tokens:     quarterCounter{},
 			Memory:     agent.NewMemMemory(),
 			IDGen:      testIDGen,
@@ -48,7 +48,7 @@ func TestAnswer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Yes {
+		if reply.Text != cote().Yes {
 			t.Fatalf("expected Yes answer, got %q", reply.Text)
 		}
 
@@ -76,7 +76,7 @@ func TestAnswer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().No {
+		if reply.Text != cote().No {
 			t.Fatalf("expected No answer, got %q", reply.Text)
 		}
 	})
@@ -156,7 +156,7 @@ func TestAnswer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedText := jose().Found + "\n" + tool.result
+		expectedText := cote().Found + "\n" + tool.result
 		if reply.Text != expectedText {
 			t.Fatalf("expected %q, got %q", expectedText, reply.Text)
 		}
@@ -188,10 +188,10 @@ func TestAnswer(t *testing.T) {
 			t.Fatalf("expected 1 writer request, got %d", len(writer.requests))
 		}
 		req := writer.requests[0]
-		if req.System != jose().WriterSystem {
-			t.Fatalf("expected system %q, got %q", jose().WriterSystem, req.System)
+		if req.System != cote().WriterSystem {
+			t.Fatalf("expected system %q, got %q", cote().WriterSystem, req.System)
 		}
-		expectedPrompt := "[2026-09-29 Tuesday 10:00]\n" + jose().DataLabel + " " + tool.result + "\n\n" + jose().QuestionLabel + " " + msg
+		expectedPrompt := "[2026-09-29 Tuesday 10:00]\n" + cote().DataLabel + " " + tool.result + "\n\n" + cote().QuestionLabel + " " + msg
 		if len(req.Messages) != 1 || req.Messages[0].Content != expectedPrompt {
 			t.Fatalf("expected prompt %q, got %v", expectedPrompt, req.Messages)
 		}
@@ -217,7 +217,7 @@ func TestAnswer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedText := jose().Found + "\n" + tool.result
+		expectedText := cote().Found + "\n" + tool.result
 		if reply.Text != expectedText {
 			t.Fatalf("expected %q, got %q", expectedText, reply.Text)
 		}
@@ -239,7 +239,7 @@ func TestAnswer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(writer.requests) != 0 {
@@ -261,7 +261,7 @@ func TestAnswer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Failed {
+		if reply.Text != cote().Failed {
 			t.Fatalf("expected Failed text, got %q", reply.Text)
 		}
 	})

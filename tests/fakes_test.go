@@ -107,7 +107,7 @@ func (c fixedClock) UTCOffsetMinutes() int {
 	return -180
 }
 
-func jose() agent.Texts {
+func cote() agent.Texts {
 	return agent.Texts{
 		Speaker:       "A staff member of a clinic",
 		Assistant:     "a clinic assistant",

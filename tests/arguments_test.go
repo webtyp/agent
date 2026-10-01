@@ -15,7 +15,7 @@ func TestArguments(t *testing.T) {
 	setupAgent := func(dec *scriptedDecider, tool *fakeTool) *agent.Agent {
 		a, err := agent.New(agent.Config{
 			Decider:    dec,
-			Texts:      jose(),
+			Texts:      cote(),
 			Tokens:     quarterCounter{},
 			Memory:     agent.NewMemMemory(),
 			IDGen:      testIDGen,

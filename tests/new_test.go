@@ -10,7 +10,7 @@ import (
 func defaultValidConfig() agent.Config {
 	return agent.Config{
 		Decider:   &scriptedDecider{},
-		Texts:     jose(),
+		Texts:     cote(),
 		Tokens:    quarterCounter{},
 		Memory:    agent.NewMemMemory(),
 		IDGen:     testIDGen,

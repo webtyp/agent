@@ -43,7 +43,7 @@ máquina del desarrollador, nunca en el navegador.
 
 ```mermaid
 flowchart TD
-    APP[Cote<br/>la aplicación, hoy mjosefa-cora] --> AGENT[agent v0.6<br/>orquestador: bucle ReAct, FSM, tools]
+    APP[Cote<br/>la aplicación] --> AGENT[agent v1<br/>orquestador: turno híbrido, tools]
     APP --> AM[agentmemory<br/>memoria del agente en IndexedDB]
     APP --> JS[js v0.0.11<br/>Web Worker]
     AGENT --> AC[agentcontext v0.1<br/>compila lo que ve el modelo]
@@ -120,9 +120,10 @@ flowchart TD
 
 ## 4. Propuesta: dónde entra el enrutador de tools
 
-**Estado: pendiente de decisión.** Un *enrutador* (router) decide qué tools le mostramos al
-modelo para este mensaje. Hoy el modelo debe pedirlas él mismo con `search_tools`, y un modelo de
-0,8B se pierde en ese salto extra. La propuesta separa tres responsabilidades:
+**Estado: decidido en agent v1.0.0** ([HYBRID_DESIGN.md](../HYBRID_DESIGN.md), D1): `ToolIndex`
+da las tools candidatas (`Config.Candidates`, 5 por defecto) y el modelo de decisión elige una o
+"ninguna". `search_tools` ya no existe. Lo que sigue es la propuesta original, que separaba tres
+responsabilidades:
 
 - **agent** pregunta, porque es el único que hace entrada/salida;
 - **el enrutador** ordena las tools por relevancia;
@@ -140,7 +141,7 @@ flowchart TD
     TRAINED --> RANK
     RANK --> FIT{agentcontext:<br/>¿caben todas en el presupuesto?}
     FIT -- sí --> ALL[se ofrecen todas]
-    FIT -- no --> TOP[las k primeras + search_tools]
+    FIT -- no --> TOP[las k primeras]
     ALL --> MODEL[paso del modelo]
     TOP --> MODEL
 ```

@@ -20,7 +20,7 @@ func TestGuard_Check(t *testing.T) {
 		}
 		a, err := agent.New(agent.Config{
 			Decider:    dec,
-			Texts:      jose(),
+			Texts:      cote(),
 			Guard:      guard,
 			Tokens:     quarterCounter{},
 			Memory:     agent.NewMemMemory(),
@@ -40,7 +40,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -54,7 +54,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -68,7 +68,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -82,7 +82,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -96,7 +96,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -110,7 +110,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -124,7 +124,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -138,7 +138,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -151,7 +151,7 @@ func TestGuard_Check(t *testing.T) {
 		dec := &scriptedDecider{t: t}
 		a, err := agent.New(agent.Config{
 			Decider:   dec,
-			Texts:     jose(),
+			Texts:     cote(),
 			Guard:     agent.Guard{Phrases: []string{"tusinstrucciones"}},
 			Tokens:    quarterCounter{},
 			Memory:    mem,
@@ -167,7 +167,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Refused {
+		if reply.Text != cote().Refused {
 			t.Fatalf("expected Refused, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -190,7 +190,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().TooLong {
+		if reply.Text != cote().TooLong {
 			t.Fatalf("expected TooLong, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -204,7 +204,7 @@ func TestGuard_Check(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().TooLong {
+		if reply.Text != cote().TooLong {
 			t.Fatalf("expected TooLong, got %q", reply.Text)
 		}
 		if len(dec.asked) != 0 {
@@ -223,7 +223,7 @@ func TestGuard_Check(t *testing.T) {
 		}
 		a, err := agent.New(agent.Config{
 			Decider:    dec,
-			Texts:      jose(),
+			Texts:      cote(),
 			Guard:      agent.Guard{Phrases: []string{"tus instrucciones"}},
 			Tokens:     quarterCounter{},
 			Memory:     agent.NewMemMemory(),

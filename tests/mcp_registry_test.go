@@ -59,7 +59,7 @@ func TestMCPRegistry_AddMCPClient(t *testing.T) {
 	dec := &scriptedDecider{t: t}
 	cfg := agent.Config{
 		Decider:    dec,
-		Texts:      jose(),
+		Texts:      cote(),
 		Tokens:     quarterCounter{},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
@@ -86,7 +86,7 @@ func TestMCPRegistry_LocalTool(t *testing.T) {
 	dec := &scriptedDecider{t: t}
 	cfg := agent.Config{
 		Decider:    dec,
-		Texts:      jose(),
+		Texts:      cote(),
 		Tokens:     quarterCounter{},
 		Memory:     testMemory,
 		IDGen:      testIDGen,

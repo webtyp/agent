@@ -18,7 +18,7 @@ func TestRoute(t *testing.T) {
 		}
 		a, err := agent.New(agent.Config{
 			Decider:    dec,
-			Texts:      jose(),
+			Texts:      cote(),
 			Tokens:     quarterCounter{},
 			Memory:     agent.NewMemMemory(),
 			IDGen:      testIDGen,
@@ -32,11 +32,15 @@ func TestRoute(t *testing.T) {
 		return a
 	}
 
-	hours := &fakeTool{name: "hours", description: "horarios de atencion", result: "9 a 18"}
-	patients := &fakeTool{name: "patients", description: "informacion de pacientes", result: "Juan Perez"}
-	services := &fakeTool{name: "services", description: "servicios ofrecidos", result: "Medicina general"}
+	// Each subtest gets fresh tools, so the calls of one subtest are not counted in the next.
+	newTools := func() (*fakeTool, *fakeTool, *fakeTool) {
+		return &fakeTool{name: "hours", description: "horarios de atencion", result: "9 a 18"},
+			&fakeTool{name: "patients", description: "informacion de pacientes", result: "Juan Perez"},
+			&fakeTool{name: "services", description: "servicios ofrecidos", result: "Medicina general"}
+	}
 
 	t.Run("high confidence choice runs tool", func(t *testing.T) {
+		hours, patients, services := newTools()
 		dec := &scriptedDecider{
 			t: t,
 			answers: []scripted{
@@ -50,7 +54,7 @@ func TestRoute(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().Found+"\n"+hours.result {
+		if reply.Text != cote().Found+"\n"+hours.result {
 			t.Fatalf("unexpected reply text: %q", reply.Text)
 		}
 		if len(hours.calls) != 1 {
@@ -62,6 +66,7 @@ func TestRoute(t *testing.T) {
 	})
 
 	t.Run("choice none returns NoTool", func(t *testing.T) {
+		hours, patients, services := newTools()
 		dec := &scriptedDecider{
 			t: t,
 			answers: []scripted{
@@ -74,7 +79,7 @@ func TestRoute(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().NoTool {
+		if reply.Text != cote().NoTool {
 			t.Fatalf("expected NoTool text, got %q", reply.Text)
 		}
 		if len(hours.calls) != 0 || len(patients.calls) != 0 || len(services.calls) != 0 {
@@ -83,6 +88,7 @@ func TestRoute(t *testing.T) {
 	})
 
 	t.Run("low confidence returns clarify with top two candidate descriptions", func(t *testing.T) {
+		hours, patients, services := newTools()
 		dec := &scriptedDecider{
 			t: t,
 			answers: []scripted{
@@ -95,7 +101,7 @@ func TestRoute(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedClarify := jose().Clarify + "\n- " + hours.description + "\n- " + patients.description
+		expectedClarify := cote().Clarify + "\n- " + hours.description + "\n- " + patients.description
 		if reply.Text != expectedClarify {
 			t.Fatalf("expected clarify:\n%q\ngot:\n%q", expectedClarify, reply.Text)
 		}
@@ -105,6 +111,7 @@ func TestRoute(t *testing.T) {
 	})
 
 	t.Run("route question context and options format", func(t *testing.T) {
+		hours, patients, services := newTools()
 		dec := &scriptedDecider{
 			t: t,
 			answers: []scripted{
@@ -123,7 +130,7 @@ func TestRoute(t *testing.T) {
 			t.Fatalf("expected decider to be asked")
 		}
 		q := dec.asked[0]
-		expectedContext := jose().Speaker + " wrote: " + msg
+		expectedContext := cote().Speaker + " wrote: " + msg
 		if q.Context != expectedContext {
 			t.Fatalf("expected context %q, got %q", expectedContext, q.Context)
 		}
@@ -132,7 +139,7 @@ func TestRoute(t *testing.T) {
 			"hours: " + hours.description,
 			"patients: " + patients.description,
 			"services: " + services.description,
-			"none: " + jose().NoToolOption,
+			"none: " + cote().NoToolOption,
 		}
 		if len(q.Options) != len(expectedOptions) {
 			t.Fatalf("expected %d options, got %d", len(expectedOptions), len(q.Options))
@@ -167,7 +174,7 @@ func TestRoute(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if reply.Text != jose().NoTool {
+		if reply.Text != cote().NoTool {
 			t.Fatalf("expected NoTool for choice 2 (none), got %q", reply.Text)
 		}
 
@@ -178,7 +185,7 @@ func TestRoute(t *testing.T) {
 		expectedOptions := []string{
 			"t3: d3",
 			"t5: d5",
-			"none: " + jose().NoToolOption,
+			"none: " + cote().NoToolOption,
 		}
 		if len(q.Options) != len(expectedOptions) {
 			t.Fatalf("expected %d options, got %d", len(expectedOptions), len(q.Options))

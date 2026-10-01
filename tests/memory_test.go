@@ -25,7 +25,7 @@ func TestMemory(t *testing.T) {
 	mem := agent.NewMemMemory()
 	a, err := agent.New(agent.Config{
 		Decider:    dec,
-		Texts:      jose(),
+		Texts:      cote(),
 		Tokens:     quarterCounter{},
 		Memory:     mem,
 		IDGen:      testIDGen,

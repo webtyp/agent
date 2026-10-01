@@ -10,9 +10,9 @@ flowchart TD
     User -. voice v2 .-> Media[webtyp/media<br/>microphone]
     Media -. audio.PCM .-> STT[webtyp/stt]
     STT -. text .-> App
-    App -->|Run| Agent[webtyp/agent<br/>orchestrator + FSM]
-    Agent -->|compile request| Ctx[webtyp/agentcontext]
-    Agent -->|Generate / CountTokens| LLM[webtyp/llm contract<br/>in-browser model runtime]
+    App -->|Run| Agent[webtyp/agent<br/>hybrid turn: guard, decider, templates]
+    Agent -->|Stamp| Ctx[webtyp/agentcontext]
+    Agent -->|Decide / Generate / CountTokens| LLM[webtyp/llm contract<br/>in-browser model runtime]
     Agent -->|memory ports| Mem[webtyp/agentmemory]
     Mem -->|orm + ddl| Store[IndexedDB in the browser<br/>SQL on a server]
     Mem -->|knowledge search| Ret[webtyp/retrieval]

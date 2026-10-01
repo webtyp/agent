@@ -44,13 +44,10 @@ func (t *toolEntry) DecodeFields(r model.FieldReader) {
 	} else if v, ok := r.String("inputSchema"); ok {
 		t.InputSchema = v
 	}
-	if v, ok := r.Bool("readOnly"); ok {
-		t.ReadOnly = v
-	}
 	if raw, ok := r.Raw("annotations"); ok {
 		var ann toolAnnotations
 		if err := json.Decode([]byte(raw), &ann); err == nil {
-			t.ReadOnly = t.ReadOnly || ann.readOnlyHint
+			t.ReadOnly = ann.readOnlyHint
 		}
 	}
 }
