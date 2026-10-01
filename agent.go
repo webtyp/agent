@@ -5,104 +5,101 @@ import (
 	"webtyp.com/fmt"
 )
 
-// DefaultPreselectTools is the default number of tools offered with search_tools on the first step.
-const DefaultPreselectTools = 3
-
-// New creates a new Agent instance.
+// New creates and configures a new Agent instance.
 func New(cfg Config) (*Agent, error) {
-	if cfg.PreselectTools < 0 {
-		return nil, fmt.Errf(errPreselectNegative)
-	}
-	if cfg.LLMs.Primary == nil {
-		return nil, fmt.Errf(errPrimaryRequired)
+	if cfg.Decider == nil {
+		return nil, fmt.Err(errDeciderRequired)
 	}
 	if cfg.Tokens == nil {
-		return nil, fmt.Errf(errTokensRequired)
+		return nil, fmt.Err(errTokensRequired)
 	}
 	if cfg.Memory == nil {
-		return nil, fmt.Errf(errMemoryRequired)
+		return nil, fmt.Err(errMemoryRequired)
 	}
 	if cfg.IDGen == nil {
-		return nil, fmt.Errf(errIDGenRequired)
+		return nil, fmt.Err(errIDGenRequired)
 	}
 	if cfg.ToolIndex == nil {
-		return nil, fmt.Errf(errToolIndexRequired)
-	}
-	if err := cfg.Budget.Validate(); err != nil {
-		return nil, fmt.Errf("agent: Budget: %w", err)
+		return nil, fmt.Err(errToolIndexRequired)
 	}
 
-	// Apply defaults
+	if name := cfg.Texts.missingText(); name != "" {
+		return nil, fmt.Errf(errTextRequired, name)
+	}
+	if cfg.Writer != nil {
+		if name := cfg.Texts.missingWriterText(); name != "" {
+			return nil, fmt.Errf(errWriterTextRequired, name)
+		}
+	}
+
+	if cfg.Candidates == 0 {
+		cfg.Candidates = 5
+	} else if cfg.Candidates < 1 || cfg.Candidates > 9 {
+		return nil, fmt.Err(errCandidatesRange)
+	}
+
+	if cfg.Guard.MaxChars < 0 {
+		return nil, fmt.Err(errMaxCharsNegative)
+	} else if cfg.Guard.MaxChars == 0 {
+		cfg.Guard.MaxChars = DefaultMaxChars
+	}
+
 	if cfg.Clock == nil {
 		cfg.Clock = MachineClock{}
 	}
-	if cfg.ToolSearchLimit == 0 {
-		cfg.ToolSearchLimit = 5
-	}
-	if cfg.PreselectTools == 0 {
-		cfg.PreselectTools = DefaultPreselectTools
-	}
-	if cfg.RecentTurns == 0 {
-		cfg.RecentTurns = 20
-	}
-	if cfg.RecentSummaries == 0 {
-		cfg.RecentSummaries = 5
-	}
-	if cfg.MaxIterations == 0 {
-		cfg.MaxIterations = 10
-	}
-	if cfg.MaxRetries == 0 {
-		cfg.MaxRetries = 3
+	if cfg.WriterMaxTokens == 0 {
+		cfg.WriterMaxTokens = 128
 	}
 	if cfg.MCPTimeoutMS == 0 {
 		cfg.MCPTimeoutMS = 30000
 	}
 
-	// Initialize Registry
-	registry := newMCPRegistry()
-
-	// Add local tools
-	for _, t := range cfg.LocalTools {
-		registry.addLocalTool(t)
-	}
-
-	// Add MCP handlers (programmatic servers)
-	// We need a context for initialization (listing tools)
 	ctx := context.Background()
 
+	registry := newMCPRegistry()
+	for _, tool := range cfg.LocalTools {
+		registry.addLocalTool(tool)
+	}
 	for _, handler := range cfg.MCPHandlers {
 		if err := registry.addMCPServer(ctx, handler, cfg.MCPTimeoutMS); err != nil {
-			return nil, fmt.Errf("agent: failed to add MCP handler %s: %w", handler.URL(), err)
+			return nil, fmt.Errf("failed to add MCP handler: %w", err)
+		}
+	}
+	for _, serverURL := range cfg.MCPServers {
+		if err := registry.addMCPServer(ctx, stringMCPServer(serverURL), cfg.MCPTimeoutMS); err != nil {
+			return nil, fmt.Errf("failed to add MCP server: %w", err)
 		}
 	}
 
-	// Connect to remote MCP servers
-	for _, url := range cfg.MCPServers {
-		client := NewHTTPMCPClient(url, cfg.MCPTimeoutMS)
-		if err := registry.addMCPClient(ctx, client); err != nil {
-			return nil, fmt.Errf("agent: failed to connect to MCP server %s: %w", url, err)
-		}
-	}
-
-	// Check reserved tool name search_tools
 	tools := registry.getTools()
-	for _, t := range tools {
-		if t.Name == searchToolsName {
-			return nil, fmt.Errf(errSearchToolsName)
+	for _, t := range cfg.Templates {
+		if t.Answer == nil {
+			return nil, fmt.Errf(errTemplateNoAnswer, t.Tool)
+		}
+		found := false
+		for _, tool := range tools {
+			if tool.Name == t.Tool {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errf(errTemplateUnknownTool, t.Tool)
 		}
 	}
 
-	// Index registered tools
 	if err := cfg.ToolIndex.IndexTools(ctx, tools); err != nil {
-		return nil, fmt.Errf("agent: indexing tools: %w", err)
+		return nil, fmt.Errf("failed to index tools: %w", err)
 	}
 
 	return &Agent{
 		cfg:      cfg,
 		mem:      cfg.Memory,
-		llms:     cfg.LLMs,
 		registry: registry,
-		fsm:      &fsm{current: StateIdle},
 		idGen:    cfg.IDGen,
 	}, nil
 }
+
+type stringMCPServer string
+
+func (s stringMCPServer) URL() string { return string(s) }

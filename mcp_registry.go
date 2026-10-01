@@ -59,6 +59,9 @@ func removeMCPToolByName(tools []mcpToolEntry, name string) []mcpToolEntry {
 }
 
 func (r *mcpRegistry) addMCPServer(ctx *context.Context, server MCPServer, timeoutMS int) error {
+	if caller, ok := server.(mcpCaller); ok {
+		return r.addMCPClient(ctx, caller)
+	}
 	client := NewHTTPMCPClient(server.URL(), timeoutMS)
 	return r.addMCPClient(ctx, client)
 }
@@ -92,9 +95,6 @@ func (r *mcpRegistry) addMCPClient(ctx *context.Context, client mcpCaller) error
 }
 
 func (r *mcpRegistry) readOnly(name string) bool {
-	if name == searchToolsName {
-		return true
-	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, t := range r.localTools {
