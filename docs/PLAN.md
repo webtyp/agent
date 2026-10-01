@@ -3,6 +3,8 @@ PLAN: "feat!: the hybrid agent — code guard, decision model, templates and wri
 TAG: v1.0.0
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 13585612604721129454
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
