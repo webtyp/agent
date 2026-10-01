@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"webtyp.com/agent"
-	"webtyp.com/agentcontext"
 	"webtyp.com/context"
 	"webtyp.com/model"
 )
@@ -57,12 +56,11 @@ func TestMCPRegistry_AddMCPClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	mockLLM := &mockLLMClient{}
+	dec := &scriptedDecider{t: t}
 	cfg := agent.Config{
-		Identity:   agentcontext.Identity{Name: "Bot"},
-		LLMs:       agent.LLMConfig{Primary: mockLLM},
+		Decider:    dec,
+		Texts:      cote(),
 		Tokens:     quarterCounter{},
-		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
 		ToolIndex:  agent.NewMemToolIndex(),
@@ -85,12 +83,11 @@ func TestMCPRegistry_LocalTool(t *testing.T) {
 		SchemaVal: `{"type": "object"}`,
 	}
 
-	mockLLM := &mockLLMClient{}
+	dec := &scriptedDecider{t: t}
 	cfg := agent.Config{
-		Identity:   agentcontext.Identity{Name: "Bot"},
-		LLMs:       agent.LLMConfig{Primary: mockLLM},
+		Decider:    dec,
+		Texts:      cote(),
 		Tokens:     quarterCounter{},
-		Budget:     agentcontext.Budget{ContextTokens: 8192, OutputTokens: 512},
 		Memory:     testMemory,
 		IDGen:      testIDGen,
 		ToolIndex:  agent.NewMemToolIndex(),

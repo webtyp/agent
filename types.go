@@ -1,18 +1,15 @@
 package agent
 
 import (
-	"webtyp.com/agentcontext"
 	"webtyp.com/llm"
 	"webtyp.com/model"
 )
 
 // Reply is what the agent has for the person after Run, Confirm or Decline.
 type Reply struct {
-	// Text is the answer to show. While Pending is non-empty it is whatever the model wrote
-	// before its tool calls, possibly empty.
+	// Text is the answer to show. While Pending is non-empty it is Texts.Confirm.
 	Text string
-	// Pending are the tool calls the model wants to make that change data. They have not run.
-	// Show them to the person and call Confirm or Decline. Empty when the answer is final.
+	// Pending are the tool calls that change data, waiting for the person: show them and call Confirm or Decline. They have not run.
 	Pending []llm.ToolCall
 }
 
@@ -21,9 +18,7 @@ type Reply struct {
 type Agent struct {
 	cfg      Config
 	mem      MemoryStore
-	llms     LLMConfig
 	registry *mcpRegistry
-	fsm      *fsm
 	idGen    model.IDGenerator
 }
 
@@ -48,35 +43,26 @@ type ToolLog struct {
 	CreatedAt  int64 // unixepoch
 }
 
-// Config is the configuration struct for New().
+// Config is the configuration struct for New(). See docs/HYBRID_DESIGN.md for the turn it drives.
 type Config struct {
-	Identity agentcontext.Identity
-	LLMs     LLMConfig           // required: LLMs.Primary != nil
-	Critic   llm.Decider         // optional: checks each answer before it reaches the person; nil = no check
-	Tokens   llm.TokenCounter    // required: the tokenizer of LLMs.Primary
-	Budget   agentcontext.Budget // required: the token limits of LLMs.Primary
-	Memory   MemoryStore         // required
-	IDGen    model.IDGenerator   // required
-	Clock    Clock               // the users' time and timezone (default: this machine's, MachineClock)
+	Decider   llm.Decider // required: picks the tool, enum arguments, yes/no answers; checks injection and the writer
+	Writer    llm.Client  // optional: phrases a tool's data when no template answers; nil = the data is shown as is
+	Texts     Texts       // required: the application's words (texts.go)
+	Templates []Template  // optional: answers from one tool's result, in the application's words
+	Guard     Guard       // the code check every message passes first (guard.go)
 
-	ToolIndex       ToolIndex // required: finds tools for search_tools (NewMemToolIndex for keywords)
-	ToolSearchLimit int       // tools returned per search (default 5)
-	PreselectTools  int       // tools offered with search_tools on the first step, by relevance to the message (default 3)
+	Tokens llm.TokenCounter  // required: counts the tokens of each stored turn
+	Memory MemoryStore       // required
+	IDGen  model.IDGenerator // required
+	Clock  Clock             // the users' time and timezone (default: this machine's, MachineClock)
 
-	RecentTurns     int // turns loaded per reasoning step (default 20)
-	RecentSummaries int // summaries loaded per reasoning step (default 5)
+	ToolIndex  ToolIndex // required: finds the candidate tools for a message (NewMemToolIndex for keywords)
+	Candidates int       // tools the decision model chooses among, 1..9 (default 5)
 
 	LocalTools  []Tool
 	MCPHandlers []MCPServer
 	MCPServers  []string
 
-	MaxIterations int // default 10
-	MaxRetries    int // default 3
-	MCPTimeoutMS  int // default 30000
-}
-
-// LLMConfig holds the LLM clients for different tasks.
-type LLMConfig struct {
-	Primary    llm.Client // required
-	Summarizer llm.Client // optional, defaults to Primary
+	WriterMaxTokens int // the longest answer the writer may write (default 128)
+	MCPTimeoutMS    int // default 30000
 }

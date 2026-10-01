@@ -13,9 +13,9 @@ sequenceDiagram
     S-->>C: {"result":{"tools":[{name, description, inputSchema}]}}
     C-->>O: Connection Established (Tools Cached)
 
-    Note over O,S: Phase 2: Execution (ReAct Acting Step)
+    Note over O,S: Phase 2: Execution (the code calls the tool the decider chose)
     O->>C: Call(toolName, argsJSON)
     C->>S: POST {serverURL}<br/>{"method":"tools/call", "params":{name, arguments}}
     S-->>C: {"result":{"content":[{type:"text", text:"result"}]}}
-    C-->>O: Observation String (result or error message)
+    C-->>O: the first text block (result or error message)
 ```

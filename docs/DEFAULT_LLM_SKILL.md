@@ -1,71 +1,40 @@
-# Agent patterns — `webtyp/agent`
+# Ecosystem Coding Skill — `webtyp/agent`
 
-This page holds the **behavioural rules of the orchestrator**: the patterns a change must keep
-so the agent stays predictable. It is written for anyone (a person or an LLM) about to change
-`orchestrator.go`, `fsm.go` or the tool registry.
+Architectural directives and mandatory conventions for agents modifying code in this repository.
 
-The build, import and layout rules are in [AGENTS.md](../AGENTS.md), and the contracts are in
-[ARCHITECTURE.md](ARCHITECTURE.md). They are not repeated here.
+---
 
-## The FSM is the only way to move
+## The Core Rule
 
-The agent's steps are states: `Idle`, `Reasoning`, `Acting`, `Reflecting`, `Responding`. Every
-move goes through `fsm.transition(to)`, which rejects a move the table does not allow.
+**This repository orchestrates. It does not implement domain models, model runtimes, storage drivers, or retrieval algorithms.**
 
-```
-Idle → Reasoning
-Reasoning → Acting | Reflecting | Responding
-Acting → Reasoning | Responding
-Reflecting → Reasoning | Responding
-Responding → Idle
-```
+Every task in this repo must respect the boundaries defined in [docs/AGENT_ECOSYSTEM_MASTER_PLAN.md](AGENT_ECOSYSTEM_MASTER_PLAN.md).
 
-A new behaviour is a new transition in `fsm.go` first, then code. A free-form loop that skips
-the FSM is never acceptable. Diagram: [FSM_STATE](diagrams/FSM_STATE.md).
+---
 
-## The loop is bounded
+## Architectural Principles
 
-- `MaxIterations` (default 10) caps Reasoning→Acting cycles.
-- `MaxRetries` (default 3) caps consecutive tool failures.
-- A model that stops at its output limit (`llm.StopMaxTokens`) ends the run with an explicit
-  error. Treating a cut-off answer as finished would return half a sentence as if it were whole.
+### 1. Zero Direct Side Effects in Orchestration
+The agent loop (`turn.go`) drives state transitions via the decision model and code guard. It must never directly write to persistent storage or call external APIs outside the ports defined in `interfaces.go`.
 
-## Tool errors are observations, not failures
+### 2. The Code Checks First
+Before any model reads a message, the deterministic code guard (`guard.go`) cleans invisible characters, verifies character limits, and checks forbidden phrases and chat template markers.
 
-A failing tool does not stop the agent. Its error is stored as the `RoleTool` message
-(`"Error: …"`), so the model can try another tool or other arguments on the next step. Only
-`MaxRetries` consecutive failures end the run.
+### 3. The Decision Model Never Writes
+All decisions (routing, injection checks, yes/no evaluations, enums, critic validation) are made via `llm.Decider`. Free-form responses are generated strictly by templates or an optional constrained writer model (`llm.Client`).
 
-## Primary, Critic and Summarizer
+### 4. Port Isolation
+- **`MemoryStore` is a pure interface.** Do not add database connections, drivers, or SQL logic. Reference implementations must be strictly in-memory (`mem_memory.go`).
+- **`ToolIndex` is a pure interface.** The keyword index in `mem_tool_index.go` is in-memory only. Vector search lives in `webtyp/agentmemory`.
 
-`LLMConfig` routes by task. `Primary` reasons and acts, `Critic` (`llm.Decider`) checks the candidate answer,
-and `Summarizer` writes summaries when the conversation is compacted.
+### 5. WASM / TinyGo Isomorphic Compliance
+Every file in root must compile under `GOOS=js GOARCH=wasm` and TinyGo.
+- **Never import standard library packages forbidden by `AGENTS.md`**: `fmt`, `errors`, `strconv`, `strings`, `encoding/json`, `context`, `time`, `net/http`, `os`, `log`.
+- **Use ecosystem packages instead**: `webtyp.com/fmt`, `webtyp.com/json`, `webtyp.com/context`, `webtyp.com/time`, `webtyp.com/unixid`.
+- **No `map[K]V` in non-test code**: use slices.
 
-## Identity becomes the stable prefix
+---
 
-`Config.Identity` (`agentcontext.Identity`: name, role, instructions, goals) is rendered by
-`agentcontext` into the request's `System`. It is the same on every step of a conversation,
-which lets a model runtime reuse the work already done on it. Anything that changes per step
-(summaries, retrieved knowledge, dates) goes into the messages, never into `System`.
+## Testing Directive
 
-## MCP
-
-- One HTTP endpoint per server, JSON-RPC 2.0, with the method in the body and never in the URL.
-- Handshake: `initialize` → `notifications/initialized` (no ID, no response) → `tools/list`.
-- Tool arguments are validated against the tool's JSON Schema before execution.
-
-Diagram: [MCP_CLIENT_FLOW](diagrams/MCP_CLIENT_FLOW.md).
-
-## The model is always injected
-
-`agent` ships no model and no provider adapter. A model runtime implements `llm.Client` and
-`llm.TokenCounter` in its own repository. In the browser that runtime is Go/TinyGo. On the
-developer machine, the integration test uses `llama-server` as a reference model (see
-[IMPLEMENTATION.md](IMPLEMENTATION.md)).
-
-## Documentation comes first
-
-- A change to a contract updates [ARCHITECTURE.md](ARCHITECTURE.md) and [TYPES.md](TYPES.md) first.
-- A change to a flow updates its diagram in `docs/diagrams/` and its DDT test.
-- Every new document is linked from the [README](../README.md).
-- Publish with `gopush` only, after `gotest` and `gotest -tinygo` pass.
+All unit and integration tests must reside in `tests/` (`package tests`) and test strictly through the exported public API of `webtyp.com/agent`. Host-only test helpers may use stdlib imports.

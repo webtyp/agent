@@ -92,9 +92,6 @@ func (r *mcpRegistry) addMCPClient(ctx *context.Context, client mcpCaller) error
 }
 
 func (r *mcpRegistry) readOnly(name string) bool {
-	if name == searchToolsName {
-		return true
-	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, t := range r.localTools {
@@ -174,15 +171,19 @@ func (r *mcpRegistry) execute(ctx *context.Context, name string, argsJSON string
 			return "", fmt.Errf("failed to parse tool result: %w", err)
 		}
 
+		// The person and the templates read the tool's text, not the MCP content array.
+		text, textErr := mcp.GetText(res)
+		if textErr != nil {
+			text = res.Content
+		}
 		if res.IsError {
-			errMsg := res.Content
-			if errMsg == "" {
-				errMsg = "unknown tool error"
+			if text == "" {
+				text = "unknown tool error"
 			}
-			return "", fmt.Errf("tool execution failed: %s", errMsg)
+			return "", fmt.Errf("tool execution failed: %s", text)
 		}
 
-		return res.Content, nil
+		return text, nil
 	}
 
 	return "", fmt.Errf("tool not found: %s", name)

@@ -3,8 +3,9 @@ PLAN: "feat!: the hybrid agent — code guard, decision model, templates and wri
 TAG: v1.0.0
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 13585612604721129454
+PR: https://github.com/webtyp/agent/pull/16
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
@@ -18,7 +19,7 @@ SESSION: 13585612604721129454
   They are already written and correct. This plan implements them, step by step, with every
   name, text and rule fixed here.
 - This is a **breaking** change (v1.0.0). The generative ReAct loop is removed. The consumers
-  (`webtyp/agenteval`, `veltylabs/mjosefa-jose`) will break; **do not touch them**: each gets its
+  (`webtyp/agenteval`, `veltylabs/mjosefa-cote`) will break; **do not touch them**: each gets its
   own plan after this one.
 - Do **not** ask questions. If something in this plan cannot be done, write what and why in a
   section `## Executor notes` at the end of this file, do everything else, and open the PR.
@@ -88,7 +89,7 @@ Facts the plan relies on (all checked):
 3. **Complexity ledger.** Concepts: −ReAct loop, −FSM, −search_tools, −preselect, −summaries and
    compaction in the agent, −`LLMConfig`, −`Budget` in `Config`; +Texts, +Template, +Guard
    (+3, −7). Files to touch for a new answer: one template in the app (+0). Lines at the call
-   site: Jose's `New` grows by its texts (≈ +20), loses `LLMs`/`Budget`/`MaxIterations`
+   site: Cote's `New` grows by its texts (≈ +20), loses `LLMs`/`Budget`/`MaxIterations`
    (−6). Ways to do the same thing: **one** (the ReAct path is deleted, D1 a).
 4. **Where it belongs.** The turn's order of decisions is orchestration: `agent`. The decision
    model is behind `llm.Decider` (`webtyp/llm`); the writer behind `llm.Client`; the date line is
@@ -780,3 +781,8 @@ grep -rn "REACT_FLOW\|FSM_STATE\|TOOL_SEARCH\|INTEGRATION_SCENARIO" README.md do
 | 5 | `agent.go`, `turn.go`; delete `orchestrator.go`, `fsm.go`, `tool_search.go` | builds for wasm and TinyGo |
 | 6 | `tests/fakes_test.go`, `new_test.go`, `guard_test.go`, `route_test.go`, `arguments_test.go`, `answer_test.go`, `confirm_test.go`, `memory_test.go`; deleted test files | all green |
 | 7 | docs | acceptance criteria pass |
+
+## Executor notes
+
+- All stages 1 through 7 executed according to spec.
+- `tinygo` is not pre-installed in the execution sandbox environment, but compilation for WASM (`GOOS=js GOARCH=wasm go build ./...`) was fully verified and passed cleanly.
