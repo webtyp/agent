@@ -7,7 +7,8 @@ import (
 	"webtyp.com/time"
 )
 
-// HTTPMCPClient adapts mcp.Client's callback-based Call to mcpCaller's blocking shape,
+// HTTPMCPClient adapts mcp.Client's callback-based Call to mcpCaller's blocking shape (for any
+// mcp.Client, local ones included, despite the name),
 // with an explicit millisecond timeout (webtyp.com/time.AfterFunc) instead of a cancelable
 // context — see docs/PLAN.md Cambio 1/2 for why context can't carry this here.
 type HTTPMCPClient struct {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"webtyp.com/llm"
+	"webtyp.com/mcp"
 	"webtyp.com/model"
 )
 
@@ -62,6 +63,10 @@ type Config struct {
 	LocalTools  []Tool
 	MCPHandlers []MCPServer
 	MCPServers  []string
+	// MCPClients are MCP servers reached through a client the application built:
+	// mcp.NewLocalClient for tools in this process (a Web Worker holding the modules, a demo),
+	// mcp.NewClient for one that needs a token.
+	MCPClients []*mcp.Client
 
 	WriterMaxTokens int // the longest answer the writer may write (default 128)
 	MCPTimeoutMS    int // default 30000

@@ -70,6 +70,11 @@ func New(cfg Config) (*Agent, error) {
 			return nil, fmt.Errf("failed to add MCP server: %w", err)
 		}
 	}
+	for _, client := range cfg.MCPClients {
+		if err := registry.addMCPClient(ctx, &HTTPMCPClient{client: client, timeoutMS: cfg.MCPTimeoutMS}); err != nil {
+			return nil, fmt.Errf("failed to add MCP client: %w", err)
+		}
+	}
 
 	tools := registry.getTools()
 	for _, t := range cfg.Templates {
