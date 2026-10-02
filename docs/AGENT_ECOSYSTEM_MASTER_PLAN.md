@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-10-01 · published: **agent v1.0.0** (hybrid turn, ReAct removed), **opfs v0.1.0**, lfm v0.1.2 (writer), qwen v0.4.5, tokenizer v0.4.2 (`Stream`), decoder v0.5.1; next: 4-bit blocks locally, then the `agenteval` and `mjosefa-cote` plans; the assistant is **Cote** (`veltylabs/mjosefa-cote`)
+> **Status:** IN PROGRESS · 2026-10-02 · published: **agent v1.1.0** (hybrid; `MCPClients`), **agentworker v0.1.0**, **mjosefa-cote v0.2.0** (Cote hybrid), mcp v0.2.40 (`NewLocalClient`), qwen v0.4.7 (`DecidePrompt`); on Jules: `agenteval` v0.3.0, `agentlab` (new, Cote's lab), `sitec` Workers; the assistant is **Cote** (`veltylabs/mjosefa-cote`)
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -17,15 +17,21 @@ with its open decisions answered in `app/docs/PLAN_DRAFT.md`. Do not mix the two
 
 In order:
 
-1. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
+1. **Review the three Jules plans** (dispatched 2026-10-02): `webtyp/agenteval` v0.3.0 (hybrid
+   `Env`), `webtyp/sitec` (Web Worker builds, plain + SIMD), `veltylabs/agentlab` v0.1.0 (Cote's
+   lab). agentlab builds against a copy of the private `mjosefa-cote` in `_temp/` with a `replace`
+   in `go.mod`: **remove both at review** and `go mod tidy` locally before merging.
+2. **First real tests** in agentlab once the three are published: `go run ./cmd/lab`, the protocol
+   in `agentlab/docs/REAL_TESTS.md` (cold and warm start, memory of the tab, each answer path,
+   plain vs SIMD, Firefox). They answer Open #2 (peak tab memory) with int8 weights first.
+3. Dispatch `mjosefa-cote/docs/PLAN.md` (scenarios on agenteval v0.3.0) once agenteval is published.
+4. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
    WASM): `weights` `Int4Block32` (Q4_0 layout: 16 bytes per 32 values, low nibble = values 0–15,
    high = 16–31, value = (nibble − 8) × scale, float32 scales like `Int8Block32`) → `nn`
    `MatVecQ4Block32` (int4 weights × int8 activations, two rows at a time) and `weightsc`
    `-quant int4-block32` → `decoder` `matrix` reads it. Then measure decider-0.8b int4 on the 36
    questions (must stay ≥ 32/36) and its size and speed in WASM.
-2. Plans for `agenteval` (decider and writer in `Env`) and `mjosefa-cote` (texts, templates,
-   guard phrases, the direct-injection scenario now expects a refusal). Both **do not build**
-   against agent v1.0.0 until then; that is expected.
+5. Cote inside `mjosefa-cms` — **not yet** (owner, 2026-10-02): after agentlab's real tests.
 
 Lessons from the v1.0.0 round (2026-10-01):
 
@@ -59,19 +65,19 @@ know what depends on what, what is decided, and what comes next.
 
 | Repository | One concern | Kind | Version |
 |---|---|---|---|
-| `agent` | the orchestrator: the hybrid turn, tool registry, confirmation, memory ports | orchestrator | **v1.0.0** (hybrid) |
-| `agenteval` | scenarios in Go run N times against local models; deterministic checks + judge (decider-4b) | tool (host only) | v0.2.7 |
+| `agent` | the orchestrator: the hybrid turn, tool registry, confirmation, memory ports | orchestrator | **v1.1.0** (hybrid; `MCPClients`) |
+| `agenteval` | scenarios in Go run N times against local models; deterministic checks + judge (decider-4b) | tool (host only) | v0.2.8; v0.3.0 (hybrid `Env`) on Jules |
 | `llm` | contract with a model: `Client`, `Streamer`, `TokenCounter`, `Decider` | contract | v0.2.2 |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Stamp` | pure library | v0.3.1 |
 | `agentmemory` | agent ports over `orm` + `ddl`; `ToolIndex` by meaning (bekko) | implementation | v0.3.2 |
-| `qwen` | Qwen3.5 family: `llm.Client` and **`llm.Decider`** (decider-0.8b), prefix caches | implementation | v0.4.5 |
+| `qwen` | Qwen3.5 family: `llm.Client` and **`llm.Decider`** (decider-0.8b), prefix caches; `DecidePrompt` (the measured wording, one source) | implementation | v0.4.7 |
 | `lfm` | LFM2 family: LFM2.5-350M as the **writer** (`llm.Client`, no tools) | implementation | v0.1.2 |
 | `decoder` | causal decoder: Qwen3.5 (DeltaNet + attention) and LFM2 (short conv + attention) | implementation | v0.5.1 |
 | `nn` | stateless kernels; `MatVecQ8Block32` (int8×int8), SIMD and performance findings | pure library | v0.4.2 |
 | `tokenizer` | BPE + schemes (`QwenScheme`, `Lfm2Scheme`, …), `ParseMerges`, `Stream` (whole UTF-8 characters) | implementation | v0.4.2 |
 | `weights`, `weightsc` | artifact format (`Int8Block32`) and checkpoint → artifact converter | format, tool | v0.2.0 |
 | `json` | JSON without reflection; `Keys` for objects whose names are data | implementation | v0.5.27 |
-| `mcp` | MCP server and client; `tools/list` announces read-only tools and descriptions | implementation | v0.2.39 |
+| `mcp` | MCP server and client (HTTP, or in process with `NewLocalClient`); `tools/list` announces read-only tools and descriptions | implementation | v0.2.40 |
 | `router` | the app's routes; `Describe` on operations (what tools say about themselves) | implementation | v0.3.1 |
 | `embed`, `bekko`, `encoder` | embedding contract, the bekko model, the encoder graph | contract, implementations | v0.4.0, v0.1.9, v0.2.4 |
 | `files` | whole-file contract: `Reader`, `Writer`, `Appender`, conformance, `mem` | contract | v0.0.2 |
@@ -80,7 +86,9 @@ know what depends on what, what is decided, and what comes next.
 | `retrieval`, `vector`, `vectordb` | chunking and search; vector math; document store | implementations | v0.0.1, v0.1.1, v0.2.4 |
 | `audio`, `stt`, `tts`, `phoneme` | voice (version 2) | contracts, implementation | v0.1.0, v0.1.0, v0.0.2, v0.0.1 |
 | `kvdb`, `pdf` | other `files` consumers | implementations | v0.1.2, v0.1.14 |
-| `agentworker`, `agentlab` | the agent inside a Web Worker; a GUI to tune prompts and see scores (a webtyp app made with `webtyp dev`, its test chat on `layout/chatview`) | accepted, not created | — |
+| `agentworker` | the agent inside a Web Worker: device check, downloads to OPFS, decision cache, typed events | implementation | v0.1.0 |
+| `veltylabs/agentlab` | Cote's lab (private): a webtyp app whose page is Cote's chat and whose Worker runs Cote with the real models and `business_calendar` over a local MCP client | application | v0.1.0 on Jules |
+| `veltylabs/mjosefa-cote` | Cote: `Texts`, `Guard`, `Templates()` (today's hours), `Config(Deps)` | configuration | v0.2.0 |
 
 A **contract** repository holds interfaces and value types only. An implementation lives in its
 own repository, so importing a contract never adds a model to a binary.
@@ -119,10 +127,11 @@ flowchart TD
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
+| on Jules | `agenteval` | `Env.Decider` (decider-0.8b, prompt from `qwen.DecidePrompt`, temperature 1.03), `Env.Writer` (LFM2.5-350M); drop `Env.Model`, `Env.Critic`, `Env.Budget` | — |
+| on Jules | `agentlab` (new) | Cote's chat + Worker + `cmd/lab` (release build + HTTPS) + `docs/REAL_TESTS.md` | sitec Workers to run it |
+| queued | `mjosefa-cote` | scenarios on agenteval v0.3.0; the direct injection now expects a refusal (D26) | agenteval v0.3.0 |
 | next, local | `weights` + `weightsc` + `nn` + `decoder` | 4-bit blocks (D6 of HYBRID_DESIGN), see "Start here" | — |
-| to write | `agenteval` | `Env.Decider`, `Env.Writer`; drop `Env.Model`, `Env.Critic`, `Env.Budget` | agent v1.0.0 |
-| to write | `mjosefa-cote` | `Texts`, `Templates`, `Guard.Phrases`; the direct-injection scenario expects a refusal (D26) | agent v1.0.0, agenteval |
-| to write | `agentworker` (new) | build the agent in a Web Worker: weights and the decision cache from OPFS; device tier and downloads per [app/docs/PWA_ARTIFACTS_MASTER_PLAN.md](https://github.com/webtyp/app/blob/main/docs/PWA_ARTIFACTS_MASTER_PLAN.md) | that plan's phases 1–2 (`opfs` and agent v1.0.0 are published) |
+| later | `mjosefa-cms` | Cote's chat in the CMS over its MCP endpoint (same origin, the staff session cookie) | agentlab's real tests |
 | moved | `device`, `app`, `js` | tier detection by feature test (D25) now belongs to the PWA wave (`webtyp/device`) | PWA master plan |
 | later | `qwen`, `lfm` | one shared prefix cache instead of one per model family (`lfm` has none yet) | — |
 | later | `nn`, `decoder` | profile the scalar remainder under WASM (SIMD gives 2× end to end, not the kernel's 4.3×) | — |
@@ -182,6 +191,18 @@ flowchart TD
 - **D28 — An MCP tool's result is its text** (2026-10-01, agent v1.0.0). The registry returns the
   first text block (`mcp.GetText`), not the raw `content` array: templates and the person read it
   directly. Content that is not text is passed as is.
+- **D29 — Tools in process go through MCP too** (2026-10-02, mcp v0.2.40, agent v1.1.0). Where
+  the tools live next to the agent (a Worker holding the modules, a demo, a test),
+  `mcp.NewLocalClient(server, userID)` is the MCP client without HTTP and
+  `agent.Config.MCPClients` takes it. One path from a module's operations to the agent, the same
+  in the lab and in the CMS. Prior art: the MCP Go SDK's in-memory transports.
+- **D30 — agenteval asks the decider with the browser's prompt** (2026-10-02, qwen v0.4.7).
+  `qwen.DecidePrompt` returns the pieces qwen tokenizes one by one; agenteval tokenizes the same
+  pieces on llama-server and reads the letters at temperature 1.03. Its previous chat-template
+  prompt measured a different question.
+- **D31 — Cote is tested first in `agentlab`, not in `mjosefa-cms`** (owner, 2026-10-02). A
+  private application (`veltylabs/agentlab`) with Cote's chat, the real models and
+  `business_calendar` in memory. The CMS integration waits for its real tests.
 
 ### Superseded (kept as a record)
 
