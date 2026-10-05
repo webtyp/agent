@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-10-02 · published: **agent v1.1.0** (hybrid; `MCPClients`), **agentworker v0.1.0**, **mjosefa-cote v0.2.0** (Cote hybrid), mcp v0.2.40 (`NewLocalClient`), qwen v0.4.7 (`DecidePrompt`); on Jules: `agenteval` v0.3.0, `agentlab` (new, Cote's lab), `sitec` Workers; the assistant is **Cote** (`veltylabs/mjosefa-cote`)
+> **Status:** IN PROGRESS · 2026-10-05 · published: **agent v1.1.0**, **agenteval v0.4.0** (hybrid `Env` + the laboratory: the agent in a browser Worker with the real models), agentworker v0.1.5, mjosefa-cote v0.2.0, sitec v0.2.43 (Workers plain + SIMD); first real tests done (agenteval/docs/REAL_TESTS.md); the assistant is **Cote** (`veltylabs/mjosefa-cote`)
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -17,21 +17,29 @@ with its open decisions answered in `app/docs/PLAN_DRAFT.md`. Do not mix the two
 
 In order:
 
-1. **Review the three Jules plans** (dispatched 2026-10-02): `webtyp/agenteval` v0.3.0 (hybrid
-   `Env`), `webtyp/sitec` (Web Worker builds, plain + SIMD), `veltylabs/agentlab` v0.1.0 (Cote's
-   lab). agentlab builds against a copy of the private `mjosefa-cote` in `_temp/` with a `replace`
-   in `go.mod`: **remove both at review** and `go mod tidy` locally before merging.
-2. **First real tests** in agentlab once the three are published: `go run ./cmd/lab`, the protocol
-   in `agentlab/docs/REAL_TESTS.md` (cold and warm start, memory of the tab, each answer path,
-   plain vs SIMD, Firefox). They answer Open #2 (peak tab memory) with int8 weights first.
-3. Dispatch `mjosefa-cote/docs/PLAN.md` (scenarios on agenteval v0.3.0) once agenteval is published.
-4. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
+1. **Cold start hangs** after the last download (`call to released function` in the Worker; the
+   four files are complete in OPFS, a reload starts in 9 s). Find which JS callback is released
+   early on the download → read path (`fetch`, `await`, `opfs`, `agentworker`); a library fix gets
+   a plan first.
+2. **4-bit blocks** (below): the real test measured **2.9 GB** of tab memory with int8 weights —
+   no room on the 4 GB machines.
+3. **Speed:** the first answer took ≈ 4 min (tool-list prefix + writer), later ones ≈ 18 s. Measure
+   the second start with the saved decision cache (D27), and plain vs SIMD.
+4. **Text arguments** (D2): the agent fills every string argument with the whole message
+   (`change_business_hours` got it as `day`, `opens` and `closes`). Needs a design before Cote's
+   modifying tools are used.
+5. **Cote in the laboratory:** `mjosefa-cote` gets its own `web/client.go` (page with
+   `agenteval/ui`) and `web/workers/cote/main.go` (Cote's Setup, `business_calendar` over
+   `mcp.NewLocalClient`). Then `mjosefa-cote/docs/PLAN.md` (scenarios on agenteval v0.3.0, now
+   unblocked).
+6. Cote inside `mjosefa-cms` — **not yet** (owner, 2026-10-02): after Cote's tests in the lab.
+
+7. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
    WASM): `weights` `Int4Block32` (Q4_0 layout: 16 bytes per 32 values, low nibble = values 0–15,
    high = 16–31, value = (nibble − 8) × scale, float32 scales like `Int8Block32`) → `nn`
    `MatVecQ4Block32` (int4 weights × int8 activations, two rows at a time) and `weightsc`
    `-quant int4-block32` → `decoder` `matrix` reads it. Then measure decider-0.8b int4 on the 36
    questions (must stay ≥ 32/36) and its size and speed in WASM.
-5. Cote inside `mjosefa-cms` — **not yet** (owner, 2026-10-02): after agentlab's real tests.
 
 Lessons from the v1.0.0 round (2026-10-01):
 
@@ -66,7 +74,7 @@ know what depends on what, what is decided, and what comes next.
 | Repository | One concern | Kind | Version |
 |---|---|---|---|
 | `agent` | the orchestrator: the hybrid turn, tool registry, confirmation, memory ports | orchestrator | **v1.1.0** (hybrid; `MCPClients`) |
-| `agenteval` | scenarios in Go run N times against local models; deterministic checks + judge (decider-4b) | tool (host only) | v0.2.8; v0.3.0 (hybrid `Env`) on Jules |
+| `agenteval` | scenarios in Go run N times against local models (decider + writer on llama-server, judge decider-4b); **the laboratory**: `ui/` (chat panel over agentworker), `lab/` (test agent, model files), `cmd/lab` (release build + HTTPS) | tool + lab | v0.4.0 |
 | `llm` | contract with a model: `Client`, `Streamer`, `TokenCounter`, `Decider` | contract | v0.2.2 |
 | `agentcontext` | context compiler: `Compile`, `Compact`, `SummaryRequest`, `Stamp` | pure library | v0.3.1 |
 | `agentmemory` | agent ports over `orm` + `ddl`; `ToolIndex` by meaning (bekko) | implementation | v0.3.2 |
@@ -86,8 +94,7 @@ know what depends on what, what is decided, and what comes next.
 | `retrieval`, `vector`, `vectordb` | chunking and search; vector math; document store | implementations | v0.0.1, v0.1.1, v0.2.4 |
 | `audio`, `stt`, `tts`, `phoneme` | voice (version 2) | contracts, implementation | v0.1.0, v0.1.0, v0.0.2, v0.0.1 |
 | `kvdb`, `pdf` | other `files` consumers | implementations | v0.1.2, v0.1.14 |
-| `agentworker` | the agent inside a Web Worker: device check, downloads to OPFS, decision cache, typed events | implementation | v0.1.0 |
-| `veltylabs/agentlab` | Cote's lab (private): a webtyp app whose page is Cote's chat and whose Worker runs Cote with the real models and `business_calendar` over a local MCP client | application | v0.1.0 on Jules |
+| `agentworker` | the agent inside a Web Worker: device check, downloads to OPFS, decision cache, typed events | implementation | v0.1.5 |
 | `veltylabs/mjosefa-cote` | Cote: `Texts`, `Guard`, `Templates()` (today's hours), `Config(Deps)` | configuration | v0.2.0 |
 
 A **contract** repository holds interfaces and value types only. An implementation lives in its
@@ -127,11 +134,11 @@ flowchart TD
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| on Jules | `agenteval` | `Env.Decider` (decider-0.8b, prompt from `qwen.DecidePrompt`, temperature 1.03), `Env.Writer` (LFM2.5-350M); drop `Env.Model`, `Env.Critic`, `Env.Budget` | — |
-| on Jules | `agentlab` (new) | Cote's chat + Worker + `cmd/lab` (release build + HTTPS) + `docs/REAL_TESTS.md` | sitec Workers to run it |
-| queued | `mjosefa-cote` | scenarios on agenteval v0.3.0; the direct injection now expects a refusal (D26) | agenteval v0.3.0 |
+| next | `fetch`/`await`/`opfs`/`agentworker` | cold-start hang (`call to released function`) | — |
+| next | `mjosefa-cote` | Cote in agenteval's laboratory (`web/workers/cote`) | — |
+| ready | `mjosefa-cote` | scenarios on agenteval v0.3.0 (`docs/PLAN.md`); the direct injection now expects a refusal (D26) | — |
 | next, local | `weights` + `weightsc` + `nn` + `decoder` | 4-bit blocks (D6 of HYBRID_DESIGN), see "Start here" | — |
-| later | `mjosefa-cms` | Cote's chat in the CMS over its MCP endpoint (same origin, the staff session cookie) | agentlab's real tests |
+| later | `mjosefa-cms` | Cote's chat in the CMS over its MCP endpoint (same origin, the staff session cookie) | Cote's tests in the lab |
 | moved | `device`, `app`, `js` | tier detection by feature test (D25) now belongs to the PWA wave (`webtyp/device`) | PWA master plan |
 | later | `qwen`, `lfm` | one shared prefix cache instead of one per model family (`lfm` has none yet) | — |
 | later | `nn`, `decoder` | profile the scalar remainder under WASM (SIMD gives 2× end to end, not the kernel's 4.3×) | — |
@@ -200,9 +207,11 @@ flowchart TD
   `qwen.DecidePrompt` returns the pieces qwen tokenizes one by one; agenteval tokenizes the same
   pieces on llama-server and reads the letters at temperature 1.03. Its previous chat-template
   prompt measured a different question.
-- **D31 — Cote is tested first in `agentlab`, not in `mjosefa-cms`** (owner, 2026-10-02). A
-  private application (`veltylabs/agentlab`) with Cote's chat, the real models and
-  `business_calendar` in memory. The CMS integration waits for its real tests.
+- **D31 — Agents are tested in agenteval's laboratory, not in `mjosefa-cms`** (owner, 2026-10-02,
+  revised 2026-10-05). The laboratory lives in `webtyp/agenteval` (`ui/`, `web/client.go`,
+  `web/workers/agent`, `cmd/lab`), the same repo as the scenarios; a separate `agentlab`
+  repository was created and removed. An application's agent (Cote) is tested by mounting
+  `agenteval/ui` with its own Worker. The CMS integration waits for those tests.
 
 ### Superseded (kept as a record)
 
@@ -233,5 +242,11 @@ flowchart TD
 
 ### Found defects, not fixed yet
 
+- Cold start: the Worker hangs after the last download with `call to released function`
+  (agenteval/docs/REAL_TESTS.md, 2026-10-05).
+- `dom` v0.13.19 made `Show` take a builder and `components` is not migrated: agenteval pins
+  `dom` v0.13.18 with a `replace` until it is.
+- The development daemon (`webtyp dev`) does not build `web/workers/`: the laboratory needs
+  `go run ./cmd/lab` to talk to the agent.
 - `app` has the `files` migration applied locally but is not published (it had unrelated
   uncommitted changes).
