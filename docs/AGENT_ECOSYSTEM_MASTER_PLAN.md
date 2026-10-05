@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-10-05 · published: **agent v1.1.0**, **agenteval v0.4.0** (hybrid `Env` + the laboratory: the agent in a browser Worker with the real models), agentworker v0.1.5, mjosefa-cote v0.2.0, sitec v0.2.43 (Workers plain + SIMD); first real tests done (agenteval/docs/REAL_TESTS.md); the assistant is **Cote** (`veltylabs/mjosefa-cote`)
+> **Status:** IN PROGRESS · 2026-10-05 · published: agent v1.1.0, agenteval v0.4.0 (laboratory), agentworker v0.1.5, **weights v0.4.0 + nn v0.5.0 (4-bit)**; on Jules: weightsc and decoder (4-bit); first real tests in agenteval/docs/REAL_TESTS.md; the assistant is **Cote** (`veltylabs/mjosefa-cote`)
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -23,9 +23,10 @@ In order:
    a plan first.
 2. **4-bit blocks** (2026-10-05: the real test measured **2.9 GB** of tab memory with int8). Four
    plans, GGUF Q4_0 layout with float32 scales:
-   `weights` v0.4.0 (`Int4Block32`, `QuantizeInt4Block32`, `DequantInt4Block32`) and `nn` v0.5.0
-   (`MatVecQ4Block32`) **on Jules**; `weightsc` (`-quant int4-block32`) and `decoder` (int4
-   `matrix`) written as `docs/PLAN_INT4.md`, dispatched once those two are published. Then,
+   **published** `weights` v0.4.0 (`Int4Block32`, `QuantizeInt4Block32`, `DequantInt4Block32`;
+   implemented locally, the Jules PR carried only the plan) and `nn` v0.5.0 (`MatVecQ4Block32`:
+   ≈ 1.11× the int8 kernel's time for half the memory, plain and SIMD); **on Jules**
+   `weightsc` (`-quant int4-block32`) and `decoder` (int4 `matrix`). Then,
    locally: convert decider-0.8b and LFM2.5-350M to int4, decider must keep ≥ 32/36 on the 36
    questions, and remeasure the tab in agenteval's laboratory.
 3. **Speed:** the first answer took ≈ 4 min (tool-list prefix + writer), later ones ≈ 18 s. Measure
@@ -132,8 +133,8 @@ flowchart TD
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
-| on Jules | `weights`, `nn` | `Int4Block32` + quantizer; `MatVecQ4Block32` | — |
-| written | `weightsc`, `decoder` | `-quant int4-block32`; int4 `matrix` (`docs/PLAN_INT4.md`) | weights v0.4.0, nn v0.5.0 |
+| done | `weights` v0.4.0, `nn` v0.5.0 | `Int4Block32` + quantizer; `MatVecQ4Block32` | — |
+| on Jules | `weightsc`, `decoder` | `-quant int4-block32`; int4 `matrix` | — |
 | next | `fetch`/`await`/`opfs`/`agentworker` | cold-start hang (`call to released function`) | — |
 | next | `mjosefa-cote` | Cote in agenteval's laboratory (`web/workers/cote`) | — |
 | ready | `mjosefa-cote` | scenarios on agenteval v0.3.0 (`docs/PLAN.md`); the direct injection now expects a refusal (D26) | — |
