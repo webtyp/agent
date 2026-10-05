@@ -21,8 +21,13 @@ In order:
    four files are complete in OPFS, a reload starts in 9 s). Find which JS callback is released
    early on the download → read path (`fetch`, `await`, `opfs`, `agentworker`); a library fix gets
    a plan first.
-2. **4-bit blocks** (below): the real test measured **2.9 GB** of tab memory with int8 weights —
-   no room on the 4 GB machines.
+2. **4-bit blocks** (2026-10-05: the real test measured **2.9 GB** of tab memory with int8). Four
+   plans, GGUF Q4_0 layout with float32 scales:
+   `weights` v0.4.0 (`Int4Block32`, `QuantizeInt4Block32`, `DequantInt4Block32`) and `nn` v0.5.0
+   (`MatVecQ4Block32`) **on Jules**; `weightsc` (`-quant int4-block32`) and `decoder` (int4
+   `matrix`) written as `docs/PLAN_INT4.md`, dispatched once those two are published. Then,
+   locally: convert decider-0.8b and LFM2.5-350M to int4, decider must keep ≥ 32/36 on the 36
+   questions, and remeasure the tab in agenteval's laboratory.
 3. **Speed:** the first answer took ≈ 4 min (tool-list prefix + writer), later ones ≈ 18 s. Measure
    the second start with the saved decision cache (D27), and plain vs SIMD.
 4. **Text arguments** (D2): the agent fills every string argument with the whole message
@@ -33,13 +38,6 @@ In order:
    `mcp.NewLocalClient`). Then `mjosefa-cote/docs/PLAN.md` (scenarios on agenteval v0.3.0, now
    unblocked).
 6. Cote inside `mjosefa-cms` — **not yet** (owner, 2026-10-02): after Cote's tests in the lab.
-
-7. **4-bit blocks, locally** (not Jules: four chained repos and the kernel needs measuring in
-   WASM): `weights` `Int4Block32` (Q4_0 layout: 16 bytes per 32 values, low nibble = values 0–15,
-   high = 16–31, value = (nibble − 8) × scale, float32 scales like `Int8Block32`) → `nn`
-   `MatVecQ4Block32` (int4 weights × int8 activations, two rows at a time) and `weightsc`
-   `-quant int4-block32` → `decoder` `matrix` reads it. Then measure decider-0.8b int4 on the 36
-   questions (must stay ≥ 32/36) and its size and speed in WASM.
 
 Lessons from the v1.0.0 round (2026-10-01):
 
@@ -134,10 +132,11 @@ flowchart TD
 
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
+| on Jules | `weights`, `nn` | `Int4Block32` + quantizer; `MatVecQ4Block32` | — |
+| written | `weightsc`, `decoder` | `-quant int4-block32`; int4 `matrix` (`docs/PLAN_INT4.md`) | weights v0.4.0, nn v0.5.0 |
 | next | `fetch`/`await`/`opfs`/`agentworker` | cold-start hang (`call to released function`) | — |
 | next | `mjosefa-cote` | Cote in agenteval's laboratory (`web/workers/cote`) | — |
 | ready | `mjosefa-cote` | scenarios on agenteval v0.3.0 (`docs/PLAN.md`); the direct injection now expects a refusal (D26) | — |
-| next, local | `weights` + `weightsc` + `nn` + `decoder` | 4-bit blocks (D6 of HYBRID_DESIGN), see "Start here" | — |
 | later | `mjosefa-cms` | Cote's chat in the CMS over its MCP endpoint (same origin, the staff session cookie) | Cote's tests in the lab |
 | moved | `device`, `app`, `js` | tier detection by feature test (D25) now belongs to the PWA wave (`webtyp/device`) | PWA master plan |
 | later | `qwen`, `lfm` | one shared prefix cache instead of one per model family (`lfm` has none yet) | — |
