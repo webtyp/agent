@@ -1,5 +1,5 @@
 # Master plan — the webtyp agent, one concern per repository
-> **Status:** IN PROGRESS · 2026-10-05 · published: agent v1.1.0, agenteval v0.4.0 (laboratory), agentworker v0.1.5, **weights v0.4.0 + nn v0.5.0 (4-bit)**; on Jules: weightsc and decoder (4-bit); first real tests in agenteval/docs/REAL_TESTS.md; the assistant is **Cote** (`veltylabs/mjosefa-cote`)
+> **Status:** IN PROGRESS · 2026-10-05 · published: agent v1.1.0, agenteval v0.4.0 (laboratory), agentworker v0.1.5, **4-bit chain: weights v0.4.0, nn v0.5.0, weightsc v0.3.0, decoder v0.6.0**; next: convert the models to int4 and measure; the assistant is **Cote** (`veltylabs/mjosefa-cote`)
 
 Indexed in [`MASTER_PLANS.md`](https://github.com/webtyp/app-releases/blob/main/docs/MASTER_PLANS.md).
 **Relation to prior waves:** it *extends* the semantic-search wave
@@ -25,8 +25,9 @@ In order:
    plans, GGUF Q4_0 layout with float32 scales:
    **published** `weights` v0.4.0 (`Int4Block32`, `QuantizeInt4Block32`, `DequantInt4Block32`;
    implemented locally, the Jules PR carried only the plan) and `nn` v0.5.0 (`MatVecQ4Block32`:
-   ≈ 1.11× the int8 kernel's time for half the memory, plain and SIMD); **on Jules**
-   `weightsc` (`-quant int4-block32`) and `decoder` (int4 `matrix`). Then,
+   ≈ 1.11× the int8 kernel's time for half the memory, plain and SIMD), `weightsc` v0.3.0
+   (`-quant int4-block32`; implemented locally, the PR carried only probe files) and `decoder`
+   v0.6.0 (int4 `matrix`, Jules PR #4). **The chain is complete.** Next,
    locally: convert decider-0.8b and LFM2.5-350M to int4, decider must keep ≥ 32/36 on the 36
    questions, and remeasure the tab in agenteval's laboratory.
 3. **Speed:** the first answer took ≈ 4 min (tool-list prefix + writer), later ones ≈ 18 s. Measure
@@ -134,7 +135,8 @@ flowchart TD
 | Next | Repository | Plan | Waits for |
 |---|---|---|---|
 | done | `weights` v0.4.0, `nn` v0.5.0 | `Int4Block32` + quantizer; `MatVecQ4Block32` | — |
-| on Jules | `weightsc`, `decoder` | `-quant int4-block32`; int4 `matrix` | — |
+| done | `weightsc` v0.3.0, `decoder` v0.6.0 | `-quant int4-block32`; int4 `matrix` | — |
+| next, local | — | convert decider-0.8b and LFM2.5-350M to int4; decider ≥ 32/36; tab memory in the laboratory | — |
 | next | `fetch`/`await`/`opfs`/`agentworker` | cold-start hang (`call to released function`) | — |
 | next | `mjosefa-cote` | Cote in agenteval's laboratory (`web/workers/cote`) | — |
 | ready | `mjosefa-cote` | scenarios on agenteval v0.3.0 (`docs/PLAN.md`); the direct injection now expects a refusal (D26) | — |
@@ -246,7 +248,7 @@ flowchart TD
   (agenteval/docs/REAL_TESTS.md, 2026-10-05).
 - `dom` v0.13.19 made `Show` take a builder and `components` is not migrated: agenteval pins
   `dom` v0.13.18 with a `replace` until it is.
-- The development daemon (`webtyp dev`) does not build `web/workers/`: the laboratory needs
-  `go run ./cmd/lab` to talk to the agent.
+- `webtyp/depfind` is private: a Jules session in any repo that depends on it (`app`) cannot run
+  `go get` and fails at stage 1. Those plans run locally (or `depfind` becomes public).
 - `app` has the `files` migration applied locally but is not published (it had unrelated
   uncommitted changes).
