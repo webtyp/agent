@@ -8,7 +8,7 @@ require (
 	webtyp.com/fmt v1.0.0
 	webtyp.com/json v0.5.29
 	webtyp.com/llm v0.2.0
-	webtyp.com/mcp v0.3.3
+	webtyp.com/mcp v0.3.4
 	webtyp.com/model v0.2.3
 	webtyp.com/time v0.5.7
 	webtyp.com/unixid v0.3.0
@@ -19,5 +19,5 @@ require (
 	webtyp.com/escape v0.1.0 // indirect
 	webtyp.com/fetch v0.1.29 // indirect
 	webtyp.com/filepath v0.1.0 // indirect
-	webtyp.com/router v0.4.2 // indirect
+	webtyp.com/router v0.4.3 // indirect
 )
