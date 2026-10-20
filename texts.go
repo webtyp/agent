@@ -1,5 +1,7 @@
 package agent
 
+import "webtyp.com/time"
+
 // Texts are the application's words: what the person reads, and the two English phrases that
 // tell the decision model who is talking to whom (the questions were measured with them).
 // Every field is required, except the three Writer* fields, required only when Config.Writer is set.
@@ -32,10 +34,10 @@ type Template struct {
 
 // Data is what a template reads.
 type Data struct {
-	Message          string // the person's message, as the guard cleaned it
-	Result           string // the tool's output
-	Now              int64  // Clock.Now(), unix nanoseconds
-	UTCOffsetMinutes int    // Clock.UTCOffsetMinutes()
+	Message          string    // the person's message, as the guard cleaned it
+	Result           string    // the tool's output
+	Now              time.Nano // Clock.Now()
+	UTCOffsetMinutes int       // Clock.UTCOffsetMinutes()
 }
 
 // missingText returns the name of the first required field that is empty, or "".

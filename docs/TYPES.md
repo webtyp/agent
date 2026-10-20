@@ -119,7 +119,7 @@ type Guard struct {
 
 ```go
 type Clock interface {
-	Now() int64            // unix nanoseconds, UTC
+	Now() time.Nano        // the instant of the turn (webtyp.com/time); a date is Now().Unix()
 	UTCOffsetMinutes() int // e.g. -180 for UTC-3
 }
 ```
@@ -144,7 +144,7 @@ type Knowledge struct {
 	SessionID string
 	Content   string
 	Source    string // default "agent"
-	CreatedAt int64  // unixepoch
+	CreatedAt time.Unix
 }
 ```
 
@@ -159,6 +159,6 @@ type ToolLog struct {
 	OutputText string // empty on error
 	ErrText    string // empty on success
 	DurationMS int64
-	CreatedAt  int64 // unixepoch
+	CreatedAt  time.Unix
 }
 ```

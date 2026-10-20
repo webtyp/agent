@@ -6,7 +6,7 @@ import "webtyp.com/time"
 // user's own computer. It is the default when Config.Clock is nil.
 type MachineClock struct{}
 
-func (MachineClock) Now() int64 { return time.Now() }
+func (MachineClock) Now() time.Nano { return time.NowNano() }
 
 // UTCOffsetMinutes is the machine's offset. webtyp.com/time detects it in whole hours.
 func (MachineClock) UTCOffsetMinutes() int { return time.GetTimeZoneOffset() * 60 }

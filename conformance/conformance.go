@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"testing"
+	"webtyp.com/time"
 
 	"webtyp.com/agent"
 	"webtyp.com/agentcontext"
@@ -83,7 +84,7 @@ func conversationGetTurnsRespectsLimit(t *testing.T, f Factory) {
 		turn := agentcontext.Turn{
 			ID:        "m",
 			Message:   llm.Message{Role: llm.RoleUser, Content: "msg"},
-			CreatedAt: int64(i),
+			CreatedAt: time.Unix(i),
 		}
 		if err := mem.AppendTurn(ctx, "s1", turn); err != nil {
 			t.Fatalf("AppendTurn %d: %v", i, err)
@@ -187,7 +188,7 @@ func summaryGetRespectsLimit(t *testing.T, f Factory) {
 			Tokens:     i * 10,
 			FromTurnID: "m1",
 			ToTurnID:   "m2",
-			CreatedAt:  int64(i),
+			CreatedAt:  time.Unix(i),
 		}
 		if err := mem.SaveSummary(ctx, "s1", sum); err != nil {
 			t.Fatalf("SaveSummary %d: %v", i, err)

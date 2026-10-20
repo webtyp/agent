@@ -11,7 +11,7 @@ func (a *Agent) newTurn(msg llm.Message) agentcontext.Turn {
 	tokens := a.cfg.Tokens.CountTokens(msg.Content)
 	return agentcontext.Turn{
 		ID:        a.idGen.NewID(),
-		CreatedAt: a.cfg.Clock.Now() / 1e9,
+		CreatedAt: a.cfg.Clock.Now().Unix(),
 		Message:   msg,
 		Tokens:    tokens,
 	}
@@ -192,7 +192,7 @@ func (a *Agent) decline(ctx *context.Context, sessionID string, calls []llm.Tool
 func (a *Agent) runCall(ctx *context.Context, sessionID string, call llm.ToolCall) (string, bool, error) {
 	start := a.cfg.Clock.Now()
 	output, execErr := a.registry.execute(ctx, call.Name, call.Input)
-	durationMS := (a.cfg.Clock.Now() - start) / 1e6
+	durationMS := int64(a.cfg.Clock.Now()-start) / nanosPerMilli // ToolLog.DurationMS is milliseconds
 
 	var errText string
 	if execErr != nil {
@@ -359,7 +359,7 @@ func (a *Agent) answer(ctx *context.Context, msg, toolName, result string, injec
 
 		now := a.cfg.Clock.Now()
 		offset := a.cfg.Clock.UTCOffsetMinutes()
-		stamp := agentcontext.Stamp(now/1e9, offset)
+		stamp := agentcontext.Stamp(now.Unix(), offset)
 		prompt := stamp + a.cfg.Texts.DataLabel + " " + result + "\n\n" + a.cfg.Texts.QuestionLabel + " " + msg
 
 		resp, err := a.cfg.Writer.Generate(ctx, llm.Request{
@@ -385,3 +385,6 @@ func (a *Agent) answer(ctx *context.Context, msg, toolName, result string, injec
 
 	return a.cfg.Texts.Found + "\n" + result, nil
 }
+
+// nanosPerMilli turns the difference of two time.Nano instants into the milliseconds of ToolLog.DurationMS.
+const nanosPerMilli = 1000000

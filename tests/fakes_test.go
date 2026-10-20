@@ -3,7 +3,7 @@ package tests
 import (
 	"strings"
 	"testing"
-	"time"
+	"webtyp.com/time"
 
 	"webtyp.com/agent"
 	"webtyp.com/context"
@@ -99,8 +99,8 @@ func (q quarterCounter) CountTokens(text string) int {
 
 type fixedClock struct{}
 
-func (c fixedClock) Now() int64 {
-	return time.Date(2026, 9, 29, 13, 0, 0, 0, time.UTC).UnixNano()
+func (c fixedClock) Now() time.Nano {
+	return time.Date(2026, 9, 29, 13, 0, 0).Nano()
 }
 
 func (c fixedClock) UTCOffsetMinutes() int {

@@ -5,6 +5,7 @@ import (
 	"webtyp.com/context"
 	"webtyp.com/llm"
 	"webtyp.com/model"
+	"webtyp.com/time"
 )
 
 type ConversationStore interface {
@@ -37,7 +38,7 @@ type MemoryStore interface {
 }
 
 type Clock interface {
-	Now() int64
+	Now() time.Nano // the instant of the turn; a date is Now().Unix()
 	UTCOffsetMinutes() int
 }
 

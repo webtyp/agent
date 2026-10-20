@@ -63,7 +63,7 @@ func (a *Agent) isYesNo(ctx *context.Context, msg string) (bool, error) {
 func (a *Agent) factsAnswer(ctx *context.Context, msg, result string) (string, bool, error) {
 	now := a.cfg.Clock.Now()
 	offset := a.cfg.Clock.UTCOffsetMinutes()
-	stamp := agentcontext.Stamp(now/1e9, offset)
+	stamp := agentcontext.Stamp(now.Unix(), offset)
 	q := llm.Question{
 		Context: fmt.Sprintf(factsContext, stamp, result, msg),
 		Text:    factsQuestion,

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"webtyp.com/time"
+
 	"webtyp.com/llm"
 	"webtyp.com/mcp"
 	"webtyp.com/model"
@@ -29,7 +31,7 @@ type Knowledge struct {
 	SessionID string // NULL = global knowledge, shared across all sessions
 	Content   string
 	Source    string // default: "agent"
-	CreatedAt int64  // unixepoch
+	CreatedAt time.Unix
 }
 
 // ToolLog is an audit record of a single tool execution. Stored in the tool_logs table.
@@ -41,7 +43,7 @@ type ToolLog struct {
 	OutputText string // empty on error
 	ErrText    string // empty on success
 	DurationMS int64
-	CreatedAt  int64 // unixepoch
+	CreatedAt  time.Unix
 }
 
 // Config is the configuration struct for New(). See docs/HYBRID_DESIGN.md for the turn it drives.
