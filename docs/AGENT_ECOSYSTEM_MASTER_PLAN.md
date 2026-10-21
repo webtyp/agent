@@ -35,10 +35,11 @@ In order:
 4. **Text arguments** (D2): the agent fills every string argument with the whole message
    (`change_business_hours` got it as `day`, `opens` and `closes`). Needs a design before Cote's
    modifying tools are used.
-5. **Cote in the laboratory:** `mjosefa-cote` gets its own `web/client.go` (page with
-   `agenteval/ui`) and `web/workers/cote/main.go` (Cote's Setup, `business_calendar` over
-   `mcp.NewLocalClient`). Then `mjosefa-cote/docs/PLAN.md` (scenarios on agenteval v0.3.0, now
-   unblocked).
+5. **Integration happens only in agenteval's laboratory** (owner, 2026-10-20; D20 of
+   `webtyp/docs/AVATAR_MASTER_PLAN.md`): the lab agent + the reference avatar, timings per
+   decision, findings in `agenteval/docs/REAL_TESTS.md`. `agenteval` is public and Cote private,
+   so Cote gets no lab page of its own; Cote is checked by its `evals/` scenarios
+   (`mjosefa-cote/docs/PLAN.md`, to revalidate against agenteval v0.4.x).
 6. Cote inside `mjosefa-cms` — **not yet** (owner, 2026-10-02): after Cote's tests in the lab.
 
 Lessons from the v1.0.0 round (2026-10-01):
