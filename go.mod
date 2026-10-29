@@ -6,10 +6,10 @@ require (
 	webtyp.com/agentcontext v0.3.2
 	webtyp.com/context v0.0.23
 	webtyp.com/fmt v1.0.0
-	webtyp.com/json v0.5.29
+	webtyp.com/json v0.5.37
 	webtyp.com/llm v0.2.0
 	webtyp.com/mcp v0.3.4
-	webtyp.com/model v0.2.8
+	webtyp.com/model v0.2.9
 	webtyp.com/time v0.6.2
 	webtyp.com/unixid v0.3.1
 )
