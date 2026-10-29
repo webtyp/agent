@@ -9,7 +9,7 @@ require (
 	webtyp.com/json v0.5.37
 	webtyp.com/llm v0.2.0
 	webtyp.com/mcp v0.3.4
-	webtyp.com/model v0.2.9
+	webtyp.com/model v0.2.10
 	webtyp.com/time v0.6.2
 	webtyp.com/unixid v0.3.1
 )
