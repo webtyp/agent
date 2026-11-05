@@ -80,9 +80,10 @@ func conversationGetTurnsRespectsLimit(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
+	ids := []string{"m1", "m2", "m3", "m4", "m5"} // one key per turn: a store rejects a repeated key
 	for i := 1; i <= 5; i++ {
 		turn := agentcontext.Turn{
-			ID:        "m",
+			ID:        ids[i-1],
 			Message:   llm.Message{Role: llm.RoleUser, Content: "msg"},
 			CreatedAt: time.Unix(i),
 		}
@@ -181,9 +182,10 @@ func summaryGetRespectsLimit(t *testing.T, f Factory) {
 	ctx := context.Background()
 	mem := f.New(t)
 
+	ids := []string{"e1", "e2", "e3", "e4", "e5"} // one key per summary: a store rejects a repeated key
 	for i := 1; i <= 5; i++ {
 		sum := agentcontext.Summary{
-			ID:         "e",
+			ID:         ids[i-1],
 			Text:       "sum",
 			Tokens:     i * 10,
 			FromTurnID: "m1",
