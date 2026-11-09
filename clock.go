@@ -8,5 +8,5 @@ type MachineClock struct{}
 
 func (MachineClock) Now() time.Nano { return time.NowNano() }
 
-// UTCOffsetMinutes is the machine's offset. webtyp.com/time detects it in whole hours.
-func (MachineClock) UTCOffsetMinutes() int { return time.GetTimeZoneOffset() * 60 }
+// UTCOffsetMinutes is the machine zone's offset from UTC now, in minutes.
+func (MachineClock) UTCOffsetMinutes() int { return time.MachineZone().Offset(time.NowUnix()) / 60 }

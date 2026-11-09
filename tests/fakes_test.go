@@ -100,7 +100,7 @@ func (q quarterCounter) CountTokens(text string) int {
 type fixedClock struct{}
 
 func (c fixedClock) Now() time.Nano {
-	return time.Date(2026, 9, 29, 13, 0, 0).Nano()
+	return time.DateUTC(2026, 9, 29, 13, 0, 0).Nano()
 }
 
 func (c fixedClock) UTCOffsetMinutes() int {

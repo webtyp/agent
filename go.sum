@@ -1,5 +1,5 @@
-webtyp.com/agentcontext v0.3.2 h1:pmstWdQgH6Glip16p4bYUlvEbBx9xDZzDtTA9iOvfwE=
-webtyp.com/agentcontext v0.3.2/go.mod h1:I7iGoG7eKXDro7XQe5hSX1Fnv0ASXY5GEbVfU92OMkk=
+webtyp.com/agentcontext v0.3.3 h1:soxqCuiPxxI/8rXAlhJkzrLlwkjjoIa46iwG4ZTcDHg=
+webtyp.com/agentcontext v0.3.3/go.mod h1:/M3kyg09aKj42clppoGz2BawySPp2GqHF69u2x0Oq4c=
 webtyp.com/base64 v0.0.6 h1:Tkr9Y/s3RLa6yuatk5Tdwdc90NhDP6pNYO1HQG9iIHM=
 webtyp.com/base64 v0.0.6/go.mod h1:wH2ocJ0rKbTo34XLsDryH9STDu0Jm2gQXasjh5wDwEw=
 webtyp.com/calendar v0.1.0 h1:lI0i74Ghee+fnYDx2P6XFJQKLyJKTeQbg4eT9IK8980=
@@ -24,7 +24,7 @@ webtyp.com/model v0.2.12 h1:/6l/OqNjompAqLC2yH/YLdtQXIt2vYGJ9NoPjScvuYs=
 webtyp.com/model v0.2.12/go.mod h1:OkyYeE3GOG8eAQGhd9wVsORAhr+xYj3q8avpoGXG25c=
 webtyp.com/router v0.4.17 h1:7aox2cih3c6qBAifZDjxzIQ4FOqVieaqdrlndFW1Ynk=
 webtyp.com/router v0.4.17/go.mod h1:LLQCn9sAWMGdkYr1OZZfoQTR3p8fjOV94JevlcHDYqE=
-webtyp.com/time v0.6.2 h1:54zst3g0xCB5GBSH/6j9P9EmvgPRs4MDCqFyDe2L/yc=
-webtyp.com/time v0.6.2/go.mod h1:dTCSLhAwMfO+4UjixTboRsXdjss59S5/8bpB9+lqc0o=
+webtyp.com/time v0.6.4 h1:T2c0Dbv3YsgaqX1hFLoZtJuOdMq7UUanqln+hVnQzOk=
+webtyp.com/time v0.6.4/go.mod h1:dTCSLhAwMfO+4UjixTboRsXdjss59S5/8bpB9+lqc0o=
 webtyp.com/unixid v0.3.1 h1:qQBK0nWeTme94GPQl4Ixlo5dlmWI7ZByG0Xwsjqtyas=
 webtyp.com/unixid v0.3.1/go.mod h1:JHhFQ/vT5KoLq0CKwAMGadZyxTzuAyjgtGnXzRP28ac=

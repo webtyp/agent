@@ -41,12 +41,10 @@ func isWordChar(r rune) bool {
 
 func extractWords(s string) []string {
 	lower := fmt.ToLower(s)
-	runes := []rune(lower)
-
 	var words []string
 	var current []rune
 
-	for _, r := range runes {
+	for _, r := range lower {
 		if isWordChar(r) {
 			current = append(current, r)
 		} else {
