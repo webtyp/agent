@@ -17,7 +17,7 @@ require (
 require (
 	webtyp.com/base64 v0.0.6 // indirect
 	webtyp.com/calendar v0.1.0 // indirect
-	webtyp.com/crud v0.0.9 // indirect
+	webtyp.com/crud v0.0.10 // indirect
 	webtyp.com/definitioncheck v0.0.3 // indirect
 	webtyp.com/escape v0.1.0 // indirect
 	webtyp.com/events v0.1.8 // indirect
