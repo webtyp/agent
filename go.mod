@@ -24,5 +24,5 @@ require (
 	webtyp.com/fetch v0.1.30 // indirect
 	webtyp.com/filepath v0.1.0 // indirect
 	webtyp.com/router v0.5.0 // indirect
-	webtyp.com/storage v0.2.1 // indirect
+	webtyp.com/storage v0.2.3 // indirect
 )
