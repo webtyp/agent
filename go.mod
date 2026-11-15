@@ -5,11 +5,11 @@ go 1.26.8
 require (
 	webtyp.com/agentcontext v0.3.3
 	webtyp.com/context v0.0.23
-	webtyp.com/fmt v1.0.1
+	webtyp.com/fmt v1.0.2
 	webtyp.com/json v0.5.40
 	webtyp.com/llm v0.2.0
 	webtyp.com/mcp v0.3.28
-	webtyp.com/model v0.2.21
+	webtyp.com/model v0.2.22
 	webtyp.com/time v0.6.4
 	webtyp.com/unixid v0.3.1
 )
