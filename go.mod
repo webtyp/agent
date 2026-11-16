@@ -22,7 +22,7 @@ require (
 	webtyp.com/escape v0.1.0 // indirect
 	webtyp.com/events v0.1.8 // indirect
 	webtyp.com/fetch v0.1.30 // indirect
-	webtyp.com/filepath v0.1.0 // indirect
+	webtyp.com/filepath v0.1.3 // indirect
 	webtyp.com/router v0.5.0 // indirect
 	webtyp.com/storage v0.2.3 // indirect
 )
